@@ -1,0 +1,47 @@
+package cmd
+
+import (
+	"fmt"
+
+	tea "github.com/charmbracelet/bubbletea"
+	"github.com/spf13/cobra"
+	"github.com/zalshy/tkt/internal/config"
+	"github.com/zalshy/tkt/internal/db"
+	"github.com/zalshy/tkt/internal/tui"
+)
+
+var monitorCmd = &cobra.Command{
+	Use:   "monitor",
+	Short: "Launch the read-only TUI dashboard",
+	Args:  cobra.NoArgs,
+	RunE:  runMonitor,
+}
+
+func init() {
+	rootCmd.AddCommand(monitorCmd)
+}
+
+func runMonitor(cmd *cobra.Command, args []string) error {
+	root, err := requireRoot()
+	if err != nil {
+		return err
+	}
+
+	database, err := db.Open(root)
+	if err != nil {
+		return fmt.Errorf("monitor: open db: %w", err)
+	}
+	defer database.Close()
+
+	cfg, err := config.LoadProject(root)
+	if err != nil {
+		return fmt.Errorf("monitor: load config: %w", err)
+	}
+
+	model := tui.New(database, cfg, root)
+	p := tea.NewProgram(model, tea.WithAltScreen())
+	if _, err := p.Run(); err != nil {
+		return fmt.Errorf("monitor: tui: %w", err)
+	}
+	return nil
+}

@@ -1,0 +1,8 @@
+bin/
+*.sqlite
+.tkt/
+*.test
+*.out
+.ia_temp/
+agents/
+.claude/
