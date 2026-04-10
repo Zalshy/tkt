@@ -44,8 +44,8 @@ func TestMigration_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("schema_version = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("schema_version = %d, want 5", version)
 	}
 }
 
@@ -75,8 +75,8 @@ func TestMigration_V2ToV3(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("schema_version = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("schema_version = %d, want 5", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -103,8 +103,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 4 {
-		t.Errorf("schema_version after first Open = %d, want 4", v1)
+	if v1 != 5 {
+		t.Errorf("schema_version after first Open = %d, want 5", v1)
 	}
 	db1.Close()
 
@@ -118,8 +118,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 4 {
-		t.Errorf("schema_version after second Open = %d, want 4", v2)
+	if v2 != 5 {
+		t.Errorf("schema_version after second Open = %d, want 5", v2)
 	}
 }
 
@@ -133,8 +133,8 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("schema_version = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("schema_version = %d, want 5", version)
 	}
 
 	// Assert exactly 2 rows in roles.

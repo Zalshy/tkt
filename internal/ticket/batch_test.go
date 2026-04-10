@@ -22,27 +22,27 @@ func TestListActive_FiltersVerifiedAndCanceled(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	todo, err := Create("todo ticket", "", actor, sqlDB)
+	todo, err := Create("todo ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create todo: %v", err)
 	}
-	planning, err := Create("planning ticket", "", actor, sqlDB)
+	planning, err := Create("planning ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create planning: %v", err)
 	}
-	inProgress, err := Create("in_progress ticket", "", actor, sqlDB)
+	inProgress, err := Create("in_progress ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create in_progress: %v", err)
 	}
-	done, err := Create("done ticket", "", actor, sqlDB)
+	done, err := Create("done ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create done: %v", err)
 	}
-	verified, err := Create("verified ticket", "", actor, sqlDB)
+	verified, err := Create("verified ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create verified: %v", err)
 	}
-	canceled, err := Create("canceled ticket", "", actor, sqlDB)
+	canceled, err := Create("canceled ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create canceled: %v", err)
 	}
@@ -101,11 +101,11 @@ func TestListDependencyEdges_Basic(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}

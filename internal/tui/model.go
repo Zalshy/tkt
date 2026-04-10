@@ -2,194 +2,290 @@ package tui
 
 import (
 	"database/sql"
-	"strconv"
-	"time"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/config"
-	ilog "github.com/zalshy/tkt/internal/log"
 	"github.com/zalshy/tkt/internal/models"
-	"github.com/zalshy/tkt/internal/ticket"
+	"github.com/zalshy/tkt/internal/tui/footer"
+	"github.com/zalshy/tkt/internal/tui/header"
+	"github.com/zalshy/tkt/internal/tui/help"
+	"github.com/zalshy/tkt/internal/tui/kanban"
+	"github.com/zalshy/tkt/internal/tui/modal"
+	"github.com/zalshy/tkt/internal/tui/search"
+	"github.com/zalshy/tkt/internal/tui/styles"
+	"github.com/zalshy/tkt/internal/tui/ticketdetail"
+	"github.com/zalshy/tkt/internal/tui/toast"
 )
 
-// Model is the root BubbleTea model for the read-only kanban monitor.
-type Model struct {
-	db          *sql.DB
-	projectPath string
-	width       int
-	height      int
+const headerHeight = 2
+const footerHeight = 1
 
-	// columns holds tickets bucketed by status index:
-	// 0=TODO, 1=PLANNING, 2=IN_PROGRESS, 3=DONE, 4=VERIFIED, 5=CANCELED
-	columns [6][]models.Ticket
+// RootModel is the top-level BubbleTea model that owns layout, size management,
+// and Kanban board state. All child components are mounted from here.
+type RootModel struct {
+	db    *sql.DB
+	cfg   *config.ProjectConfig
+	root  string
+	width int
+	height int
 
-	// cursor position
-	colIdx int
-	rowIdx int
+	// Child components
+	board  kanban.Board
+	detail ticketdetail.Model
+	search search.Model
+	hdr    header.Model // "hdr" to avoid collision with the "header" import
+	ftr    footer.Model // "ftr" to avoid collision with the "footer" import
 
-	showCanceled bool
+	// Layout / interaction state
+	epoch int // monotonically increasing; tags each LoadCmd call
 
-	// side panel state
-	showPanel   bool
-	panelLogs   []models.LogEntry
-	panelPlan   *models.LogEntry
-	panelTicket models.Ticket
+	// Full unfiltered ticket list, needed to re-apply search.Filter after query changes.
+	allTickets []models.Ticket
 
-	interval    time.Duration
-	lastErr     error
-	lastRefresh time.Time
+	// modals holds the active overlay state. Named "modals" (not "modal") to avoid
+	// shadowing the modal package identifier inside RootModel methods.
+	modals modal.Manager
 }
 
-// tickMsg is sent on each poll interval.
-type tickMsg time.Time
-
-// dataMsg carries the result of a background ticket fetch.
-type dataMsg struct {
-	columns [6][]models.Ticket
-	err     error
-}
-
-// panelDataMsg carries the result of loading a ticket's log entries for the side panel.
-type panelDataMsg struct {
-	logs []models.LogEntry
-	plan *models.LogEntry
-	err  error
-}
-
-// New constructs a new Model. Caller must pass the result to tea.NewProgram.
-func New(db *sql.DB, cfg *config.ProjectConfig, projectPath string) Model {
-	interval := 2 * time.Second
-	if cfg != nil && cfg.MonitorInterval > 0 {
-		interval = time.Duration(cfg.MonitorInterval) * time.Second
-	}
-	return Model{
-		db:          db,
-		projectPath: projectPath,
-		interval:    interval,
+// NewRootModel constructs a RootModel with zero-valued layout fields.
+// The header is initialised here (not in Init) because Init uses a value
+// receiver — any assignments inside Init are silently discarded.
+// No I/O is performed.
+func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
+	return RootModel{
+		db:    db,
+		cfg:   cfg,
+		root:  root,
+		hdr:   header.New(0, 0),
+		board: kanban.New(0, 0),
 	}
 }
 
-// Init starts the first data fetch and the poll ticker.
-func (m Model) Init() tea.Cmd {
-	return tea.Batch(m.loadData(), m.scheduleTick())
+// Init satisfies tea.Model. Initialises child components and kicks off the
+// header animation and the initial board load.
+func (m RootModel) Init() tea.Cmd {
+	m.hdr = header.New(m.width, 0)
+	m.detail = ticketdetail.New(m.width, m.height-headerHeight-footerHeight, false)
+	m.search = search.New(m.width)
+	m.ftr = footer.New(m.width, footer.ContextList)
+	return tea.Batch(
+		header.InitCmd(),
+		kanban.LoadCmd(m.db, m.epoch),
+	)
 }
 
-// loadData returns a tea.Cmd that fetches all tickets and buckets them.
-func (m Model) loadData() tea.Cmd {
-	db := m.db
-	return func() tea.Msg {
-		result, err := ticket.List(ticket.ListOptions{All: true, IncludeVerified: true}, db)
-		if err != nil {
-			return dataMsg{err: err}
+// Update handles terminal resize and quit key events plus all child component
+// message routing.
+func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// R1 — Forward ALL messages to the header unconditionally.
+	// header.tickMsg is unexported so we cannot type-assert on it in the switch
+	// below. The header must receive every message first so its animation ticks.
+	var hdrCmd tea.Cmd
+	m.hdr, hdrCmd = m.hdr.Update(msg)
+	if hdrCmd != nil {
+		cmds = append(cmds, hdrCmd)
+	}
+
+	switch msg := msg.(type) {
+	case tea.WindowSizeMsg:
+		m.width = msg.Width
+		m.height = msg.Height
+
+		contentHeight := m.height - headerHeight - footerHeight
+
+		m.hdr = m.hdr.SetWidth(m.width)
+		m.board = m.board.SetSize(m.width, contentHeight)
+		m.detail = m.detail.SetSize(m.width, contentHeight)
+		m.search = m.search.SetWidth(m.width)
+		m.ftr = m.ftr.SetWidth(m.width)
+
+		if m.modals.WidthFor(modal.KindHelp) != 0 && m.modals.WidthFor(modal.KindHelp) != m.width {
+			m.modals = m.modals.Show(modal.KindHelp, help.Render(m.width), m.width)
 		}
-		return dataMsg{columns: bucketTickets(result.Tickets)}
-	}
-}
-
-// scheduleTick returns a tea.Cmd that fires once after m.interval.
-// Update restarts it on each tick — this avoids drift from accumulating ticks.
-func (m Model) scheduleTick() tea.Cmd {
-	d := m.interval
-	return tea.Tick(d, func(t time.Time) tea.Msg {
-		return tickMsg(t)
-	})
-}
-
-// panelLoad returns a tea.Cmd that loads log data for the given ticket.
-func panelLoad(db *sql.DB, ticketID int64) tea.Cmd {
-	idStr := strconv.FormatInt(ticketID, 10)
-	return func() tea.Msg {
-		logs, err := ilog.GetAll(idStr, db)
-		if err != nil {
-			return panelDataMsg{err: err}
+		if m.modals.WidthFor(modal.KindToast) != 0 {
+			m.modals = m.modals.Dismiss(modal.KindToast)
 		}
-		plan, err := ilog.LatestPlan(idStr, db)
-		if err != nil {
-			return panelDataMsg{err: err}
+
+		return m, tea.Batch(cmds...)
+
+	case kanban.BoardLoadedMsg:
+		if msg.Err != nil {
+			return m, tea.Batch(cmds...)
 		}
-		return panelDataMsg{logs: logs, plan: plan}
+		m.allTickets = msg.Tickets
+		m.board = m.board.SetTickets(msg.Tickets)
+		return m, tea.Batch(cmds...)
+
+	case ticketdetail.DetailLoadedMsg:
+		var dCmd tea.Cmd
+		m.detail, dCmd = m.detail.Update(msg) // ticketdetail handles epoch guard internally
+		if dCmd != nil {
+			cmds = append(cmds, dCmd)
+		}
+		// Refresh detail modal content if it's currently open
+		if k, _ := m.modals.Active(); k == modal.KindDetail {
+			m.modals = m.modals.Show(modal.KindDetail, m.detail.View(), m.width)
+		}
+		return m, tea.Batch(cmds...)
+
+	case toast.ToastExpiredMsg:
+		m.modals = m.modals.Dismiss(modal.KindToast)
+
+	case tea.KeyMsg:
+		// Quit keys — handled before anything else.
+		if msg.Type == tea.KeyCtrlC || (msg.String() == "q" && !m.search.IsActive()) {
+			return m, tea.Quit
+		}
+
+		switch {
+		case msg.Type == tea.KeyEsc && m.modals.HasActive():
+			kind, _ := m.modals.Active()
+			m.modals = m.modals.Dismiss(kind)
+			if kind == modal.KindDetail {
+				m.detail = m.detail.SetFocus(false)
+			}
+
+		case msg.Type == tea.KeyEsc && m.search.IsActive():
+			m.search = m.search.Close()
+			m.board = m.board.SetTickets(m.allTickets)
+			m.ftr = m.ftr.SetContext(footerCtx(m))
+
+		case msg.String() == "?" && !m.search.IsActive():
+			m.modals = m.modals.Show(modal.KindHelp, help.Render(m.width), m.width)
+
+		case msg.String() == "/" && !m.search.IsActive():
+			m.search = m.search.Open()
+			m.ftr = m.ftr.SetContext(footer.ContextSearch)
+
+		// Column navigation: left/right arrows OR h/l vim keys.
+		case isColNav(msg) && !m.search.IsActive() && !m.modals.HasActive():
+			m.board, _ = m.board.Update(msg)
+			m.ftr = m.ftr.SetContext(footerCtx(m))
+
+		// Scroll the detail modal with j/k/↑/↓ when it is the active overlay.
+		case isCursorNav(msg) && !m.search.IsActive() && m.modals.HasActive():
+			if kind, _ := m.modals.Active(); kind == modal.KindDetail {
+				var dCmd tea.Cmd
+				m.detail, dCmd = m.detail.Update(msg)
+				if dCmd != nil {
+					cmds = append(cmds, dCmd)
+				}
+				// Refresh modal content after scroll.
+				m.modals = m.modals.Show(modal.KindDetail, m.detail.View(), m.width)
+			}
+
+		// Row navigation within the active column: j/k vim OR ↑/↓ arrows.
+		case isCursorNav(msg) && !m.search.IsActive() && !m.modals.HasActive():
+			m.board, _ = m.board.Update(msg)
+
+		case msg.Type == tea.KeyEnter && !m.search.IsActive() && !m.modals.HasActive():
+			if t := m.board.SelectedTicket(); t != nil {
+				m.epoch++
+				m.detail = m.detail.SetTicket(t, m.epoch).SetFocus(true)
+				dCmd := ticketdetail.LoadCmd(m.db, t.ID, m.epoch)
+				cmds = append(cmds, dCmd)
+				m.modals = m.modals.Show(modal.KindDetail, m.detail.View(), m.width)
+			}
+
+		case msg.Type == tea.KeyEnter && m.search.IsActive():
+			// search select — do nothing for now (search just filters the board)
+
+		default:
+			if m.search.IsActive() {
+				var sCmd tea.Cmd
+				m.search, sCmd = m.search.Update(msg)
+				// Filter the active column only
+				allForCol := ticketsForStatus(m.allTickets, m.board.ActiveStatus())
+				filtered := m.search.Filter(allForCol)
+				// Rebuild board with filtered active column
+				boardTickets := replaceStatusTickets(m.allTickets, m.board.ActiveStatus(), filtered)
+				m.board = m.board.SetTickets(boardTickets)
+				if sCmd != nil {
+					cmds = append(cmds, sCmd)
+				}
+			}
+		}
 	}
+
+	return m, tea.Batch(cmds...)
 }
 
-// bucketTickets groups a flat ticket slice into the 6-slot array by status.
-// Index mapping: 0=TODO, 1=PLANNING, 2=IN_PROGRESS, 3=DONE, 4=VERIFIED, 5=CANCELED.
-func bucketTickets(tickets []models.Ticket) [6][]models.Ticket {
-	var cols [6][]models.Ticket
-	for _, t := range tickets {
-		idx := statusIndex(t.Status)
-		cols[idx] = append(cols[idx], t)
+// View renders the root layout. If the terminal is smaller than 80×24 it
+// renders a centred size-guard error instead of the normal chrome.
+func (m RootModel) View() string {
+	// Size guard — must be checked first.
+	if m.width < 60 || m.height < 20 {
+		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 60×20", m.width, m.height)
+		return lipgloss.Place(m.width, m.height,
+			lipgloss.Center, lipgloss.Center,
+			lipgloss.NewStyle().Foreground(styles.Danger).Render(errMsg))
 	}
-	return cols
+
+	contentHeight := m.height - headerHeight - footerHeight
+	headerView := m.hdr.View()
+
+	boardView := m.board.View()
+
+	if m.search.IsActive() {
+		boardView = m.search.View() + "\n" + boardView
+	}
+
+	if m.modals.HasActive() {
+		_, content := m.modals.Active()
+		boardView = modal.Overlay(boardView, content, m.width, contentHeight)
+	}
+
+	footerView := m.ftr.SetWidth(m.width).View()
+	return headerView + "\n" + boardView + "\n" + footerView
 }
 
-// statusIndex maps a Status to its column index.
-func statusIndex(s models.Status) int {
-	switch s {
-	case models.StatusTodo:
-		return 0
-	case models.StatusPlanning:
-		return 1
-	case models.StatusInProgress:
-		return 2
-	case models.StatusDone:
-		return 3
-	case models.StatusVerified:
-		return 4
-	case models.StatusCanceled:
-		return 5
-	default:
-		return 0
+// footerCtx derives the appropriate footer.Context from current model state.
+func footerCtx(m RootModel) footer.Context {
+	if m.modals.HasActive() {
+		return footer.ContextModal
 	}
+	if m.search.IsActive() {
+		return footer.ContextSearch
+	}
+	return footer.ContextList
 }
 
-// clampCursor ensures colIdx and rowIdx stay within valid ranges given the
-// current columns content and showCanceled flag.
-func clampCursor(colIdx, rowIdx int, columns [6][]models.Ticket, showCanceled bool) (int, int) {
-	visible := visibleCols(showCanceled)
-	numCols := len(visible)
-
-	if numCols == 0 {
-		return 0, 0
-	}
-
-	if colIdx < 0 {
-		colIdx = 0
-	}
-	if colIdx >= numCols {
-		colIdx = numCols - 1
-	}
-
-	col := visible[colIdx]
-	colLen := len(columns[col])
-
-	if colLen == 0 {
-		return colIdx, 0
-	}
-
-	if rowIdx < 0 {
-		rowIdx = 0
-	}
-	if rowIdx >= colLen {
-		rowIdx = colLen - 1
-	}
-
-	return colIdx, rowIdx
+// isColNav reports whether msg is a column-navigation key (left/right/h/l).
+func isColNav(msg tea.KeyMsg) bool {
+	s := msg.String()
+	return s == "left" || s == "right" || s == "h" || s == "l"
 }
 
-// visibleCols returns the column indices that should be shown.
-func visibleCols(showCanceled bool) []int {
-	if showCanceled {
-		return []int{0, 1, 2, 3, 4, 5}
-	}
-	return []int{0, 1, 2, 3, 4}
+// isCursorNav reports whether msg is a row-navigation key (up/down/k/j).
+func isCursorNav(msg tea.KeyMsg) bool {
+	s := msg.String()
+	return s == "j" || s == "k" || msg.Type == tea.KeyUp || msg.Type == tea.KeyDown
 }
 
-// truncateTitle returns the title truncated to maxRunes runes.
-// If the title is shorter or equal to maxRunes, it is returned unchanged.
-func truncateTitle(title string, maxRunes int) string {
-	runes := []rune(title)
-	if len(runes) <= maxRunes {
-		return title
+// ticketsForStatus returns tickets matching the given status from the full list.
+func ticketsForStatus(all []models.Ticket, status models.Status) []models.Ticket {
+	var out []models.Ticket
+	for _, t := range all {
+		if t.Status == status {
+			out = append(out, t)
+		}
 	}
-	return string(runes[:maxRunes])
+	return out
+}
+
+// replaceStatusTickets returns a copy of all where tickets with the given status
+// are replaced by replacement. Used to apply search filters to a single column.
+func replaceStatusTickets(all []models.Ticket, status models.Status, replacement []models.Ticket) []models.Ticket {
+	out := make([]models.Ticket, 0, len(all))
+	for _, t := range all {
+		if t.Status != status {
+			out = append(out, t)
+		}
+	}
+	out = append(out, replacement...)
+	return out
 }

@@ -38,8 +38,8 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("monitor: load config: %w", err)
 	}
 
-	model := tui.New(database, cfg, root)
-	p := tea.NewProgram(model, tea.WithAltScreen())
+	model := tui.NewRootModel(database, cfg, root)
+	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("monitor: tui: %w", err)
 	}

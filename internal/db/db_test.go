@@ -192,8 +192,8 @@ func TestOpen_SchemaVersion(t *testing.T) {
 	if err := db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 4 {
-		t.Errorf("schema_version = %d, want 4", version)
+	if version != 5 {
+		t.Errorf("schema_version = %d, want 5", version)
 	}
 
 	// Ensure exactly one row in schema_version.

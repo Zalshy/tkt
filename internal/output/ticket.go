@@ -81,6 +81,9 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 	b.WriteString(separator + "\n")
 	b.WriteString(fmt.Sprintf("#%d  ·  %s\n", t.ID, ColorStatus(t.Status)))
 	b.WriteString(t.Title + "\n")
+	if t.Tier != "" && t.Tier != "standard" {
+		b.WriteString(fmt.Sprintf("Tier:   %s\n", t.Tier))
+	}
 	b.WriteString(separator + "\n")
 	b.WriteString("\n")
 

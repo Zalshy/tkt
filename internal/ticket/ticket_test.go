@@ -62,7 +62,7 @@ func TestCreate_Roundtrip(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk, err := Create("My title", "My description", actor, sqlDB)
+	tk, err := Create("My title", "My description", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestGetByID_BothFormats(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	created, err := Create("Test", "", actor, sqlDB)
+	created, err := Create("Test", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestList_HasMoreFlag(t *testing.T) {
 	actor := makeActor()
 
 	for i := 0; i < 11; i++ {
-		if _, err := Create("ticket", "", actor, sqlDB); err != nil {
+		if _, err := Create("ticket", "", "standard", actor, sqlDB); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -148,11 +148,11 @@ func TestList_SoftDeleteFilter(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk1, err := Create("live ticket", "", actor, sqlDB)
+	tk1, err := Create("live ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create tk1: %v", err)
 	}
-	tk2, err := Create("deleted ticket", "", actor, sqlDB)
+	tk2, err := Create("deleted ticket", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create tk2: %v", err)
 	}
@@ -180,15 +180,15 @@ func TestGetDependencies_MultiLevel(t *testing.T) {
 	actor := makeActor()
 
 	// Create A, B, C where C depends on B and B depends on A.
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -222,15 +222,15 @@ func TestGetDependents_MultiLevel(t *testing.T) {
 	actor := makeActor()
 
 	// Create A, B, C where C depends on B and B depends on A.
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -263,11 +263,11 @@ func TestIsReady_BlockedAndUnblocked(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	x, err := Create("X", "", actor, sqlDB)
+	x, err := Create("X", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create X: %v", err)
 	}
-	y, err := Create("Y", "", actor, sqlDB)
+	y, err := Create("Y", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create Y: %v", err)
 	}
@@ -298,15 +298,15 @@ func TestList_Ready(t *testing.T) {
 	actor := makeActor()
 
 	// P has no deps, Q depends on P (TODO), R has no deps.
-	p, err := Create("P", "", actor, sqlDB)
+	p, err := Create("P", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create P: %v", err)
 	}
-	q, err := Create("Q", "", actor, sqlDB)
+	q, err := Create("Q", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create Q: %v", err)
 	}
-	r, err := Create("R", "", actor, sqlDB)
+	r, err := Create("R", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create R: %v", err)
 	}
@@ -358,11 +358,11 @@ func TestGetDependencies_SoftDeletedExcluded(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestIsReady_NoDependencies(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk, err := Create("no deps", "", actor, sqlDB)
+	tk, err := Create("no deps", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -407,11 +407,11 @@ func TestAddDependencies_Single(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -436,15 +436,15 @@ func TestAddDependencies_Multiple(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -468,11 +468,11 @@ func TestAddDependencies_Idempotent(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestAddDependencies_SelfDep(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
@@ -518,11 +518,11 @@ func TestAddDependencies_CycleDetected(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -558,11 +558,11 @@ func TestRemoveDependency_HappyPath(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -589,11 +589,11 @@ func TestRemoveDependency_EdgeNotFound(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}

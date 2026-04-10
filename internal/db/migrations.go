@@ -105,6 +105,10 @@ CREATE INDEX idx_project_context_deleted_at ON project_context(deleted_at)`,
 		`INSERT INTO roles (name, base_role, is_builtin) VALUES ('architect',   'architect',   1)`,
 		`INSERT INTO roles (name, base_role, is_builtin) VALUES ('implementer', 'implementer', 1)`,
 	},
+	// V5 — add tier column to tickets
+	{
+		`ALTER TABLE tickets ADD COLUMN tier TEXT NOT NULL DEFAULT 'standard'`,
+	},
 }
 
 // migrate ensures the schema_version table exists, then applies any

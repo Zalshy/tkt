@@ -26,6 +26,7 @@ var planCmd = &cobra.Command{
 
 func init() {
 	rootCmd.AddCommand(planCmd)
+	planCmd.Flags().String("body", "", "plan body for non-interactive use (skips $EDITOR when set)")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -55,6 +56,20 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	if t.Status != models.StatusPlanning {
 		return fmt.Errorf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)
+	}
+
+	planBody, err := cmd.Flags().GetString("body")
+	if err != nil {
+		return fmt.Errorf("plan: get --body flag: %w", err)
+	}
+	planBody = strings.TrimSpace(planBody)
+
+	if planBody != "" {
+		if err := log.Append(t.ID, "plan", planBody, nil, nil, sess, database); err != nil {
+			return fmt.Errorf("plan: save: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "Plan updated for #%d\n", t.ID)
+		return nil
 	}
 
 	entry, err := log.LatestPlan(strconv.FormatInt(t.ID, 10), database)

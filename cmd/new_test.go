@@ -18,16 +18,19 @@ func runNewInDir(t *testing.T, dir string, args []string, setupFlags func()) (st
 	savedRootDir := rootDir
 	savedDesc := newDescription
 	savedAfter := newAfter
+	savedTier := newTier
 	defer func() {
 		rootDir = savedRootDir
 		newDescription = savedDesc
 		newAfter = savedAfter
+		newTier = savedTier
 		newCmd.SetOut(nil)
 	}()
 
 	rootDir = dir
 	newDescription = ""
 	newAfter = ""
+	newTier = "standard"
 
 	if setupFlags != nil {
 		setupFlags()

@@ -33,7 +33,11 @@ func RenderList(tickets []models.Ticket, hasMore bool, total int) string {
 	for i, t := range tickets {
 		idStr := fmt.Sprintf("#%d", t.ID)
 		// %-*s right-pads idStr to maxIDWidth characters.
-		b.WriteString(fmt.Sprintf("%-*s  %s", maxIDWidth, idStr, t.Title))
+		line := fmt.Sprintf("%-*s  %s", maxIDWidth, idStr, t.Title)
+		if t.Tier != "" && t.Tier != "standard" {
+			line += fmt.Sprintf("  [%s]", t.Tier)
+		}
+		b.WriteString(line)
 		if i < len(tickets)-1 {
 			b.WriteByte('\n')
 		}

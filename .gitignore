@@ -1,4 +1,5 @@
 bin/
+tkt
 *.sqlite
 .tkt/
 *.test
@@ -6,3 +7,8 @@ bin/
 .ia_temp/
 agents/
 .claude/
+.ia_docs/
+*.deb
+*.png
+demo.tape
+demo.png/

@@ -20,6 +20,7 @@ type Ticket struct {
 	Title       string
 	Description string
 	Status      Status
+	Tier        string // "critical", "standard", "low"
 	CreatedBy   string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time

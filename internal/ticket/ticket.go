@@ -32,11 +32,14 @@ type ListResult struct {
 }
 
 // Create inserts a new ticket and returns the fully-populated Ticket.
-func Create(title, description string, actor *models.Session, db *sql.DB) (*models.Ticket, error) {
+func Create(title, description, tier string, actor *models.Session, db *sql.DB) (*models.Ticket, error) {
+	if tier != "critical" && tier != "standard" && tier != "low" {
+		return nil, fmt.Errorf("ticket.Create: invalid tier %q: must be critical, standard, or low", tier)
+	}
 	result, err := db.Exec(
-		`INSERT INTO tickets (title, description, status, created_by)
-		 VALUES (?, ?, 'TODO', ?)`,
-		title, description, actor.ID,
+		`INSERT INTO tickets (title, description, status, tier, created_by)
+		 VALUES (?, ?, 'TODO', ?, ?)`,
+		title, description, tier, actor.ID,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ticket.Create: insert: %w", err)
@@ -63,11 +66,11 @@ func GetByID(id string, db *sql.DB) (*models.Ticket, error) {
 	var deletedAt sql.NullTime
 
 	err = db.QueryRow(
-		`SELECT id, title, description, status, created_by, created_at, updated_at, deleted_at
+		`SELECT id, title, description, status, tier, created_by, created_at, updated_at, deleted_at
 		 FROM tickets WHERE id = ? AND deleted_at IS NULL`,
 		n,
 	).Scan(
-		&t.ID, &t.Title, &t.Description, &t.Status,
+		&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier,
 		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
 	)
 	if err != nil {
@@ -124,7 +127,7 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 	}
 
 	// Build query string.
-	query := "SELECT t.id, t.title, t.description, t.status, t.created_by, t.created_at, t.updated_at, t.deleted_at FROM tickets t"
+	query := "SELECT t.id, t.title, t.description, t.status, t.tier, t.created_by, t.created_at, t.updated_at, t.deleted_at FROM tickets t"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -152,7 +155,7 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 		var t models.Ticket
 		var deletedAt sql.NullTime
 		if err := rows.Scan(
-			&t.ID, &t.Title, &t.Description, &t.Status,
+			&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier,
 			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
 		); err != nil {
 			return ListResult{}, fmt.Errorf("ticket.List: scan: %w", err)

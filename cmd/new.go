@@ -14,6 +14,7 @@ import (
 
 var newDescription string
 var newAfter string
+var newTier string
 
 var newCmd = &cobra.Command{
 	Use:   "new \"<title>\"",
@@ -25,6 +26,7 @@ var newCmd = &cobra.Command{
 func init() {
 	newCmd.Flags().StringVar(&newDescription, "description", "", "ticket description")
 	newCmd.Flags().StringVar(&newAfter, "after", "", "comma-separated dependency ticket IDs (e.g. 5,7)")
+	newCmd.Flags().StringVar(&newTier, "tier", "standard", "ticket tier (critical, standard, low)")
 	rootCmd.AddCommand(newCmd)
 }
 
@@ -48,7 +50,7 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("new: load session: %w", err)
 	}
 
-	t, err := ticket.Create(args[0], newDescription, sess, database)
+	t, err := ticket.Create(args[0], newDescription, newTier, sess, database)
 	if err != nil {
 		return fmt.Errorf("new: create: %w", err)
 	}
