@@ -92,7 +92,7 @@ func Read(id int, db *sql.DB) (*models.Context, error) {
 		&c.CreatedAt, &c.UpdatedAt, &deletedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: context #%d not found", ErrNotFound, id)
 		}
 		return nil, fmt.Errorf("context.Read: %w", err)

@@ -14,7 +14,6 @@ const (
 	Green  = "\033[32m"
 	Red    = "\033[31m"
 	Purple = "\033[35m"
-	Teal   = "\033[36m" // shares code with Cyan — cosmetically acceptable at this phase
 )
 
 // Colorize wraps text with the given ANSI color code and appends Reset.
@@ -48,7 +47,7 @@ func RoleColor(r models.Role) string {
 	case models.RoleArchitect:
 		return Purple
 	case models.RoleImplementer:
-		return Teal
+		return Cyan
 	default:
 		return Reset
 	}

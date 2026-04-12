@@ -25,15 +25,17 @@ type DetailLoadedMsg struct {
 // return updated copies — callers must replace their stored model with the
 // return value.
 type Model struct {
-	ticket   *models.Ticket
-	logs     []models.LogEntry
-	plan     *models.LogEntry
-	offset   int
-	focused  bool
-	width    int
-	height   int
-	epoch    int
-	rendered string // cached glamour output; rebuilt on SetTicket, SetDetail, SetSize
+	ticket        *models.Ticket
+	logs          []models.LogEntry
+	plan          *models.LogEntry
+	offset        int
+	focused       bool
+	width         int
+	height        int
+	epoch         int
+	rendered      string                // cached glamour output; rebuilt on SetTicket, SetDetail, SetSize
+	renderer      *glamour.TermRenderer // cached renderer; reused when width unchanged
+	rendererWidth int                   // width the cached renderer was built for
 }
 
 // New constructs a Model with the given dimensions and focus state.
@@ -225,16 +227,20 @@ func (m Model) buildRendered() Model {
 		logSection,
 	)
 
-	renderer, err := glamour.NewTermRenderer(
-		glamour.WithStandardStyle("dark"),
-		glamour.WithWordWrap(innerWidth),
-	)
-	if err != nil {
-		m.rendered = markdown
-		return m
+	if m.renderer == nil || m.rendererWidth != innerWidth {
+		r, err := glamour.NewTermRenderer(
+			glamour.WithStandardStyle("dark"),
+			glamour.WithWordWrap(innerWidth),
+		)
+		if err != nil {
+			m.rendered = markdown
+			return m
+		}
+		m.renderer = r
+		m.rendererWidth = innerWidth
 	}
 
-	out, err := renderer.Render(markdown)
+	out, err := m.renderer.Render(markdown)
 	if err != nil {
 		m.rendered = markdown
 		return m

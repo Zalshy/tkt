@@ -1,6 +1,9 @@
 package db
 
-import "database/sql"
+import (
+	"database/sql"
+	"fmt"
+)
 
 func CleanupStaleSessions(db *sql.DB, dryRun bool) (int64, error) {
 	if dryRun {
@@ -9,14 +12,21 @@ func CleanupStaleSessions(db *sql.DB, dryRun bool) (int64, error) {
 			`SELECT COUNT(*) FROM sessions
              WHERE last_active < datetime('now', '-48 hours') AND expired_at IS NULL`,
 		).Scan(&count)
-		return count, err
+		if err != nil {
+			return 0, fmt.Errorf("CleanupStaleSessions: scan count: %w", err)
+		}
+		return count, nil
 	}
 	result, err := db.Exec(
 		`UPDATE sessions SET expired_at = datetime('now')
          WHERE last_active < datetime('now', '-48 hours') AND expired_at IS NULL`,
 	)
 	if err != nil {
-		return 0, err
+		return 0, fmt.Errorf("CleanupStaleSessions: exec update: %w", err)
 	}
-	return result.RowsAffected()
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, fmt.Errorf("CleanupStaleSessions: rows affected: %w", err)
+	}
+	return n, nil
 }

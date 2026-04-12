@@ -8,7 +8,6 @@ import (
 	"os"
 	"regexp"
 	"strings"
-	"time"
 
 	"github.com/zalshy/tkt/internal/models"
 )
@@ -55,9 +54,10 @@ func GenerateID(baseRole models.Role) string {
 func randomHex4() string {
 	buf := make([]byte, 2)
 	if _, err := rand.Read(buf); err != nil {
-		// Extremely rare; fall back to math/rand seeded with the current time.
-		r := mrand.New(mrand.NewSource(time.Now().UnixNano())) //nolint:gosec
-		r.Read(buf)
+		// Extremely rare; fall back to math/rand global source.
+		n := mrand.Int63() //nolint:gosec
+		buf[0] = byte(n)
+		buf[1] = byte(n >> 8)
 	}
 	return hex.EncodeToString(buf)
 }

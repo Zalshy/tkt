@@ -3,6 +3,7 @@ package tui
 import (
 	"database/sql"
 	"fmt"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
@@ -22,6 +23,16 @@ import (
 const headerHeight = 2
 const footerHeight = 1
 
+// pollTickMsg is sent by pollCmd on each poll interval.
+type pollTickMsg struct{}
+
+// pollCmd returns a tea.Cmd that fires after d, sending a pollTickMsg.
+func pollCmd(d time.Duration) tea.Cmd {
+	return tea.Tick(d, func(time.Time) tea.Msg {
+		return pollTickMsg{}
+	})
+}
+
 // RootModel is the top-level BubbleTea model that owns layout, size management,
 // and Kanban board state. All child components are mounted from here.
 type RootModel struct {
@@ -39,7 +50,9 @@ type RootModel struct {
 	ftr    footer.Model // "ftr" to avoid collision with the "footer" import
 
 	// Layout / interaction state
-	epoch int // monotonically increasing; tags each LoadCmd call
+	epoch        int           // monotonically increasing; tags each LoadCmd call
+	tickN        int           // comet animation tick counter
+	pollInterval time.Duration // how often to auto-refresh board data
 
 	// Full unfiltered ticket list, needed to re-apply search.Filter after query changes.
 	allTickets []models.Ticket
@@ -54,25 +67,31 @@ type RootModel struct {
 // receiver — any assignments inside Init are silently discarded.
 // No I/O is performed.
 func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
+	interval := time.Duration(cfg.MonitorInterval) * time.Second
+	if interval <= 0 {
+		interval = 5 * time.Second
+	}
 	return RootModel{
-		db:    db,
-		cfg:   cfg,
-		root:  root,
-		hdr:   header.New(0, 0),
-		board: kanban.New(0, 0),
+		db:           db,
+		cfg:          cfg,
+		root:         root,
+		hdr:          header.New(0, 0),
+		board:        kanban.New(0, 0),
+		detail:       ticketdetail.New(0, 0, false),
+		search:       search.New(0),
+		ftr:          footer.New(0, footer.ContextList),
+		pollInterval: interval,
 	}
 }
 
 // Init satisfies tea.Model. Initialises child components and kicks off the
 // header animation and the initial board load.
 func (m RootModel) Init() tea.Cmd {
-	m.hdr = header.New(m.width, 0)
-	m.detail = ticketdetail.New(m.width, m.height-headerHeight-footerHeight, false)
-	m.search = search.New(m.width)
-	m.ftr = footer.New(m.width, footer.ContextList)
 	return tea.Batch(
 		header.InitCmd(),
 		kanban.LoadCmd(m.db, m.epoch),
+		kanban.TickCmd(),
+		pollCmd(m.pollInterval),
 	)
 }
 
@@ -82,12 +101,26 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
 	// R1 — Forward ALL messages to the header unconditionally.
-	// header.tickMsg is unexported so we cannot type-assert on it in the switch
-	// below. The header must receive every message first so its animation ticks.
+	// header.TickMsg is exported but we still forward all messages so the header
+	// receives every message first for its animation ticks.
 	var hdrCmd tea.Cmd
 	m.hdr, hdrCmd = m.hdr.Update(msg)
 	if hdrCmd != nil {
 		cmds = append(cmds, hdrCmd)
+	}
+
+	// R2 — Forward kanban tick messages so the comet animation self-schedules.
+	if _, ok := msg.(kanban.TickMsg); ok {
+		m.tickN++
+		return m, kanban.TickCmd()
+	}
+
+	// R3 — Poll tick: refresh board data and re-schedule.
+	if _, ok := msg.(pollTickMsg); ok {
+		return m, tea.Batch(
+			kanban.LoadCmd(m.db, m.epoch),
+			pollCmd(m.pollInterval),
+		)
 	}
 
 	switch msg := msg.(type) {
@@ -114,10 +147,19 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case kanban.BoardLoadedMsg:
 		if msg.Err != nil {
-			return m, tea.Batch(cmds...)
+			toastContent := toast.Render("Board load failed: "+msg.Err.Error(), toast.Error, m.width)
+			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
+			return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
 		}
 		m.allTickets = msg.Tickets
-		m.board = m.board.SetTickets(msg.Tickets)
+		if m.search.IsActive() {
+			allForCol := ticketsForVisualCol(msg.Tickets, m.board.ActiveStatus())
+			filtered := m.search.Filter(allForCol)
+			boardTickets := replaceStatusTickets(msg.Tickets, m.board.ActiveStatus(), filtered)
+			m.board = m.board.SetTickets(boardTickets)
+		} else {
+			m.board = m.board.SetTickets(msg.Tickets)
+		}
 		return m, tea.Batch(cmds...)
 
 	case ticketdetail.DetailLoadedMsg:
@@ -164,6 +206,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		// Column navigation: left/right arrows OR h/l vim keys.
 		case isColNav(msg) && !m.search.IsActive() && !m.modals.HasActive():
 			m.board, _ = m.board.Update(msg)
+			m.hdr = m.hdr.SetActiveTab(m.board.ActiveCol())
 			m.ftr = m.ftr.SetContext(footerCtx(m))
 
 		// Scroll the detail modal with j/k/↑/↓ when it is the active overlay.
@@ -199,7 +242,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				var sCmd tea.Cmd
 				m.search, sCmd = m.search.Update(msg)
 				// Filter the active column only
-				allForCol := ticketsForStatus(m.allTickets, m.board.ActiveStatus())
+				allForCol := ticketsForVisualCol(m.allTickets, m.board.ActiveStatus())
 				filtered := m.search.Filter(allForCol)
 				// Rebuild board with filtered active column
 				boardTickets := replaceStatusTickets(m.allTickets, m.board.ActiveStatus(), filtered)
@@ -214,7 +257,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the root layout. If the terminal is smaller than 80×24 it
+// View renders the root layout. If the terminal is smaller than 60×20 it
 // renders a centred size-guard error instead of the normal chrome.
 func (m RootModel) View() string {
 	// Size guard — must be checked first.
@@ -228,7 +271,7 @@ func (m RootModel) View() string {
 	contentHeight := m.height - headerHeight - footerHeight
 	headerView := m.hdr.View()
 
-	boardView := m.board.View()
+	boardView := m.board.SetTickN(m.tickN).View()
 
 	if m.search.IsActive() {
 		boardView = m.search.View() + "\n" + boardView
@@ -236,7 +279,7 @@ func (m RootModel) View() string {
 
 	if m.modals.HasActive() {
 		_, content := m.modals.Active()
-		boardView = modal.Overlay(boardView, content, m.width, contentHeight)
+		boardView = modal.Overlay(content, m.width, contentHeight)
 	}
 
 	footerView := m.ftr.SetWidth(m.width).View()
@@ -266,26 +309,44 @@ func isCursorNav(msg tea.KeyMsg) bool {
 	return s == "j" || s == "k" || msg.Type == tea.KeyUp || msg.Type == tea.KeyDown
 }
 
-// ticketsForStatus returns tickets matching the given status from the full list.
-func ticketsForStatus(all []models.Ticket, status models.Status) []models.Ticket {
+// ticketsForVisualCol returns all tickets that visually belong to the column
+// identified by status. Mirrors the bucketing in kanban/board.go SetTickets:
+//
+//	StatusInProgress → StatusPlanning column
+//	StatusVerified   → StatusDone column
+//
+// Must stay in sync with board.go SetTickets bucketing logic.
+func ticketsForVisualCol(all []models.Ticket, status models.Status) []models.Ticket {
 	var out []models.Ticket
 	for _, t := range all {
-		if t.Status == status {
+		visual := t.Status
+		if visual == models.StatusInProgress {
+			visual = models.StatusPlanning
+		} else if visual == models.StatusVerified {
+			visual = models.StatusDone
+		}
+		if visual == status {
 			out = append(out, t)
 		}
 	}
 	return out
 }
 
-// replaceStatusTickets returns a copy of all where tickets with the given status
-// are replaced by replacement. Used to apply search filters to a single column.
+// replaceStatusTickets rebuilds the ticket list replacing all tickets that
+// visually belong to the given column with replacement. Uses same bucketing
+// as ticketsForVisualCol — must stay in sync with board.go SetTickets.
 func replaceStatusTickets(all []models.Ticket, status models.Status, replacement []models.Ticket) []models.Ticket {
 	out := make([]models.Ticket, 0, len(all))
 	for _, t := range all {
-		if t.Status != status {
+		visual := t.Status
+		if visual == models.StatusInProgress {
+			visual = models.StatusPlanning
+		} else if visual == models.StatusVerified {
+			visual = models.StatusDone
+		}
+		if visual != status {
 			out = append(out, t)
 		}
 	}
-	out = append(out, replacement...)
-	return out
+	return append(out, replacement...)
 }

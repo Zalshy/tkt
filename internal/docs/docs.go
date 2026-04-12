@@ -158,11 +158,8 @@ func ResolveDoc(root, query string) (string, error) {
 		return "", fmt.Errorf("ResolveDoc: read dir: %w", err)
 	}
 
-	isID := regexp.MustCompile(`^\d+$`).MatchString(query)
-	queryN := 0
-	if isID {
-		queryN, _ = strconv.Atoi(query)
-	}
+	queryN, err := strconv.Atoi(query)
+	isID := err == nil
 
 	var matches []string
 	for _, e := range entries {

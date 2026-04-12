@@ -79,9 +79,14 @@ func ValidateTransition(
 
 	// Role check — skipped when AllowedRoles is nil/empty (any role).
 	if len(found.AllowedRoles) > 0 && !containsRole(found.AllowedRoles, actor.EffectiveRole) {
+		roleStrs := make([]string, len(found.AllowedRoles))
+		for i, r := range found.AllowedRoles {
+			roleStrs[i] = string(r)
+		}
+		allowedStr := strings.Join(roleStrs, "/")
 		violations = append(violations, fmt.Sprintf(
 			"transition %s → %s requires role '%s'\nCurrent session %s has role '%s' (effective: '%s')",
-			from, to, found.AllowedRoles[0], actor.ID, actor.Role, actor.EffectiveRole,
+			from, to, allowedStr, actor.ID, actor.Role, actor.EffectiveRole,
 		))
 	}
 

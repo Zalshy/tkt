@@ -8,7 +8,7 @@ import (
 	"github.com/zalshy/tkt/internal/project"
 )
 
-const version = "0.0.5-BETA"
+const version = "0.0.6-BETA"
 
 // rootDir is set by the persistent --dir flag and used by all subcommands to
 // locate the project root. Empty string means "use cwd / walk upward".

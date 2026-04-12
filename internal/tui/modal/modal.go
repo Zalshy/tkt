@@ -102,12 +102,9 @@ func (m Manager) WidthFor(kind Kind) int {
 }
 
 // Overlay centers modal content over a canvas of the given dimensions using
-// lipgloss.Place. Note that lipgloss.Place does not alpha-composite two rendered
-// strings — it positions the modal content within a width×height canvas. The
-// background parameter is reserved for future compositing (e.g. ansi layering)
-// and is currently unused. RootModel replaces the panesView string with the
-// return value of this function when a modal is active.
-func Overlay(background, modal string, width, height int) string {
-	_ = background // reserved for future layering
+// lipgloss.Place. lipgloss.Place positions modal within a width×height canvas;
+// it does not alpha-composite rendered strings. RootModel replaces the panesView
+// string with the return value of this function when a modal is active.
+func Overlay(modal string, width, height int) string {
 	return lipgloss.Place(width, height, lipgloss.Center, lipgloss.Center, modal)
 }

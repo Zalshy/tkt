@@ -9,9 +9,6 @@ import (
 	"github.com/zalshy/tkt/internal/tui/styles"
 )
 
-// CardHeight is the number of rendered lines a card occupies.
-const CardHeight = 2
-
 func tierColor(tier string) lipgloss.Color {
 	switch tier {
 	case "critical":
@@ -23,37 +20,35 @@ func tierColor(tier string) lipgloss.Color {
 	}
 }
 
-// rainbowColors cycles through these vibrant hues for the IN PROGRESS tag.
-var rainbowColors = []lipgloss.Color{
-	"#22D3EE", // cyan
-	"#F472B6", // pink
-	"#FBBF24", // amber
-	"#A78BFA", // violet
-}
-
-// renderRainbow renders each non-space rune in s with a cycling vibrant color
-// (bold). Space characters are rendered with selBg when selected is true,
-// otherwise as plain spaces.
-func renderRainbow(s string, selected bool) string {
+// renderProgressBar renders a comet-tail scanning bar of width chars.
+// Head advances left-to-right at tickN%width; tail decays behind it.
+// dist = (head - i + width) % width: 0→█ 1→▓ 2→▒ 3→░ else space.
+func renderProgressBar(width, tickN int, selected bool) string {
+	if width <= 0 {
+		return ""
+	}
+	head := tickN % width
 	var sb strings.Builder
-	ci := 0
-	for _, r := range s {
-		if r == ' ' {
-			if selected {
-				sb.WriteString(lipgloss.NewStyle().Background(styles.Accent).Render(" "))
-			} else {
-				sb.WriteRune(' ')
-			}
-		} else {
-			st := lipgloss.NewStyle().
-				Foreground(rainbowColors[ci%len(rainbowColors)]).
-				Bold(true)
-			if selected {
-				st = st.Background(styles.Accent)
-			}
-			sb.WriteString(st.Render(string(r)))
-			ci++
+	for i := 0; i < width; i++ {
+		dist := (head - i + width) % width
+		var ch rune
+		switch dist {
+		case 0:
+			ch = '█'
+		case 1:
+			ch = '▓'
+		case 2:
+			ch = '▒'
+		case 3:
+			ch = '░'
+		default:
+			ch = ' '
 		}
+		st := lipgloss.NewStyle().Foreground(styles.StatusInProg)
+		if selected {
+			st = st.Background(styles.Accent)
+		}
+		sb.WriteString(st.Render(string(ch)))
 	}
 	return sb.String()
 }
@@ -63,9 +58,10 @@ func renderRainbow(s string, selected bool) string {
 //
 //	Line 1:  │  #ID [tier]          STATUS TAG   (status tag right-aligned, if space)
 //	Line 2:  │  title (full inner width)
+//	Line 3:  │  progress bar (IN_PROGRESS cards only)
 //
 // selected: cursor is on this card. focused: the column owning this card is active.
-func renderCard(t models.Ticket, width int, selected, focused bool) string {
+func renderCard(t models.Ticket, width int, selected, focused bool, tickN int) string {
 	innerWidth := width - 2 // left border takes 1 col, right side has 1 col padding
 	if innerWidth < 4 {
 		innerWidth = 4
@@ -79,12 +75,11 @@ func renderCard(t models.Ticket, width int, selected, focused bool) string {
 	const verifiedTag = "VERIFIED"
 
 	var tagText string
-	var tagIsRainbow bool
 	var tagColor lipgloss.Color
 	switch t.Status {
 	case models.StatusInProgress:
 		tagText = inProgressTag
-		tagIsRainbow = true
+		tagColor = styles.StatusInProg
 	case models.StatusVerified:
 		tagText = verifiedTag
 		tagColor = styles.StatusVerified
@@ -112,16 +107,11 @@ func renderCard(t models.Ticket, width int, selected, focused bool) string {
 			spacer = lipgloss.NewStyle().Background(styles.Accent).Render(spacer)
 		}
 
-		var tagRendered string
-		if tagIsRainbow {
-			tagRendered = renderRainbow(tagText, selected)
-		} else {
-			tagSt := lipgloss.NewStyle().Foreground(tagColor).Bold(true)
-			if selected {
-				tagSt = tagSt.Background(styles.Accent)
-			}
-			tagRendered = tagSt.Render(tagText)
+		tagSt := lipgloss.NewStyle().Foreground(tagColor).Bold(true)
+		if selected {
+			tagSt = tagSt.Background(styles.Accent)
 		}
+		tagRendered := tagSt.Render(tagText)
 
 		line1 = leftSt.Render(leftStr) + spacer + tagRendered
 	} else {
@@ -147,7 +137,11 @@ func renderCard(t models.Ticket, width int, selected, focused bool) string {
 	}
 	border := lipgloss.NewStyle().Foreground(borderColor).Render("│")
 
-	return border + line1 + "\n" + border + titleSt.Render(title)
+	result := border + line1 + "\n" + border + titleSt.Render(title)
+	if t.Status == models.StatusInProgress {
+		result += "\n" + border + renderProgressBar(innerWidth, tickN, selected)
+	}
+	return result
 }
 
 func truncate(s string, max int) string {

@@ -76,7 +76,7 @@ func Create(name, baseRole string, db *sql.DB) error {
 }
 
 // List returns all roles ordered by name ASC.
-// Returns nil (not an empty slice) when there are no roles.
+// Returns a non-nil empty slice when there are no roles.
 func List(db *sql.DB) ([]Role, error) {
 	rows, err := db.Query(`SELECT name, base_role, is_builtin, created_at FROM roles ORDER BY name ASC`)
 	if err != nil {
@@ -84,7 +84,7 @@ func List(db *sql.DB) ([]Role, error) {
 	}
 	defer rows.Close()
 
-	var roles []Role
+	roles := make([]Role, 0)
 	for rows.Next() {
 		var r Role
 		var isBuiltin int
@@ -107,7 +107,7 @@ func List(db *sql.DB) ([]Role, error) {
 func Delete(name string, db *sql.DB) error {
 	var isBuiltin int
 	err := db.QueryRow(`SELECT is_builtin FROM roles WHERE name = ?`, name).Scan(&isBuiltin)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return fmt.Errorf("role.Delete: %w", ErrNotFound)
 	}
 	if err != nil {
@@ -134,7 +134,7 @@ func Delete(name string, db *sql.DB) error {
 func ResolveBase(name string, db *sql.DB) (models.Role, error) {
 	var baseRole string
 	err := db.QueryRow(`SELECT base_role FROM roles WHERE name = ?`, name).Scan(&baseRole)
-	if err == sql.ErrNoRows {
+	if errors.Is(err, sql.ErrNoRows) {
 		return "", fmt.Errorf("role.ResolveBase: %w", ErrNotFound)
 	}
 	if err != nil {

@@ -25,9 +25,9 @@ var (
 
 // Accent and tier colors
 var (
-	Accent       = lipgloss.Color("#6366F1") // indigo-500 — focus/active
+	Accent       = lipgloss.Color("#9CA3AF") // slate-400 — focus/active
 	TierCritical = lipgloss.Color("#EF4444") // red-500
-	TierStandard = lipgloss.Color("#6366F1") // indigo-500 — same as Accent intentionally
+	TierStandard = lipgloss.Color("#6366F1") // indigo-500 — distinct from slate Accent highlight
 	TierLow      = lipgloss.Color("#10B981") // emerald-500
 )
 
@@ -35,7 +35,7 @@ var (
 var (
 	StatusTodo     = lipgloss.Color("#94A3B8") // slate-400
 	StatusPlanning = lipgloss.Color("#F59E0B") // amber-400 — same value as Warning
-	StatusInProg   = lipgloss.Color("#3B82F6") // blue-500
+	StatusInProg   = lipgloss.Color("#F472B6") // pink-400 — distinct from blue selection highlight
 	StatusDone     = lipgloss.Color("#10B981") // emerald-500
 	StatusVerified = lipgloss.Color("#6EE7B7") // emerald-300
 )

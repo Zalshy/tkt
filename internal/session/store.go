@@ -44,12 +44,19 @@ func End(root string, db *sql.DB) (sessionID string, err error) {
 		return "", ErrNoSession
 	}
 
-	_, err = db.Exec(
+	result, err := db.Exec(
 		`UPDATE sessions SET expired_at = datetime('now') WHERE id = ?`,
 		id,
 	)
 	if err != nil {
 		return "", fmt.Errorf("End: update session: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return "", fmt.Errorf("End: rows affected: %w", err)
+	}
+	if n == 0 {
+		return "", fmt.Errorf("End: session %q not found in database", id)
 	}
 
 	return id, nil

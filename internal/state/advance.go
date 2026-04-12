@@ -44,6 +44,10 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	if submitterID == "" {
 		submitterID = t.CreatedBy
 	}
+	// submitter is a partial Session — only ID is set. All other fields (EffectiveRole,
+	// Role, Name) are zero values. ValidateTransition currently reads submitter.ID only
+	// (isolation check). Do NOT access any other field on submitter without first
+	// populating it here or rethinking the lookup strategy.
 	submitter := &models.Session{ID: submitterID}
 
 	// Step 3: resolve target state when to is zero value.

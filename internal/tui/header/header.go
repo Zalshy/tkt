@@ -12,14 +12,14 @@ import (
 	"github.com/zalshy/tkt/internal/tui/styles"
 )
 
-// tickMsg is sent by TickCmd on each animation frame.
-type tickMsg struct{}
+// TickMsg is sent by TickCmd on each animation frame.
+type TickMsg struct{}
 
-// TickCmd returns a tea.Cmd that fires after 16ms sending a tickMsg.
+// TickCmd returns a tea.Cmd that fires after 16ms sending a TickMsg.
 // The root model calls this and routes the result back to the header.
 func TickCmd() tea.Cmd {
 	return tea.Tick(16*time.Millisecond, func(time.Time) tea.Msg {
-		return tickMsg{}
+		return TickMsg{}
 	})
 }
 
@@ -28,8 +28,6 @@ func TickCmd() tea.Cmd {
 func InitCmd() tea.Cmd {
 	return TickCmd()
 }
-
-// TODO(ticket#20): when wiring into root model, update contentHeight to m.height - headerHeight - footerHeight (header is 2 lines, not 1)
 
 // Model holds the state for the header component.
 type Model struct {
@@ -45,7 +43,7 @@ type Model struct {
 func New(width, activeTab int) Model {
 	m := Model{
 		width: width,
-		tabs:  []string{"TODO", "PLANNING", "IN_PROGRESS", "DONE", "VERIFIED"},
+		tabs:  []string{"TODO", "PLANNING", "DONE"},
 	}
 	m.activeTab = clampTab(activeTab, len(m.tabs))
 	return m
@@ -67,7 +65,7 @@ func (m Model) SetActiveTab(tab int) Model {
 // animation and returns the next TickCmd until the animation completes.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 	switch msg.(type) {
-	case tickMsg:
+	case TickMsg:
 		if m.animDone {
 			return m, nil
 		}
@@ -128,12 +126,7 @@ func (m Model) View() string {
 		titleLine = rendered
 	}
 
-	// Line 2 — separator
-	separator := lipgloss.NewStyle().
-		Foreground(styles.Muted).
-		Render(strings.Repeat("─", m.width))
-
-	return titleLine + "\n" + separator
+	return titleLine + "\n" + m.renderTabBar()
 }
 
 // renderTabBar builds the tab bar by rendering each rune individually with its own
@@ -266,12 +259,4 @@ func clampTab(tab, n int) int {
 		return n - 1
 	}
 	return tab
-}
-
-// max returns the larger of two ints.
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }

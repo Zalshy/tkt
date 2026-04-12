@@ -21,6 +21,7 @@ type ListOptions struct {
 	Limit           int            // 0 = use default (10)
 	All             bool           // true = no LIMIT clause; also disables soft-delete filter
 	IncludeVerified bool
+	ExcludeCanceled bool
 	Sort            string // "updated" (default) or "id"
 	Ready           bool   // true = only tickets with no unresolved dependencies
 }
@@ -74,7 +75,7 @@ func GetByID(id string, db *sql.DB) (*models.Ticket, error) {
 		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
 	)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("%w: ticket #%d not found", ErrNotFound, n)
 		}
 		return nil, fmt.Errorf("ticket.GetByID: %w", err)
@@ -107,6 +108,10 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 	} else if !opts.IncludeVerified {
 		// When no specific status is requested, hide VERIFIED tickets by default.
 		where = append(where, "t.status != 'VERIFIED'")
+	}
+
+	if opts.ExcludeCanceled {
+		where = append(where, "t.status != 'CANCELED'")
 	}
 
 	if opts.Ready {
@@ -316,12 +321,13 @@ func AddDependencies(ticketID int64, depIDs []int64, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("ticket.AddDependencies: begin tx: %w", err)
 	}
+	defer tx.Rollback() // no-op after successful Commit; covers all error paths
+
 	for _, depID := range depIDs {
 		if _, err := tx.Exec(
 			`INSERT OR IGNORE INTO ticket_dependencies (ticket_id, depends_on) VALUES (?, ?)`,
 			ticketID, depID,
 		); err != nil {
-			tx.Rollback()
 			return fmt.Errorf("ticket.AddDependencies: insert: %w", err)
 		}
 	}

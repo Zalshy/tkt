@@ -58,10 +58,11 @@ tkt advance <id>                    Move a ticket to the next state
 tkt plan <id>                       Write or revise a ticket plan
 tkt comment <id> "<msg>"            Add a comment to a ticket
 tkt depends <id> --on <ids>         Declare ticket dependencies
-tkt context readall                 Read all project context entries
+tkt context readall/add/update/delete  Manage project context entries
 tkt role create/list/delete         Manage custom roles
 tkt doc add/list/read/archive       Manage documents
-tkt monitor                         Read-only TUI dashboard
+tkt cleanup                         Expire stale sessions and run maintenance
+tkt monitor                         Read-only TUI dashboard (auto-refreshes every MonitorInterval seconds, default 5s)
 ```
 
 ## Ticket lifecycle

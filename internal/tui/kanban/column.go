@@ -79,19 +79,44 @@ func (c Column) adjustScroll() Column {
 	return c
 }
 
+// cardHeightNormal is the number of rendered lines for a standard card.
+const cardHeightNormal = 2
+
+// cardHeightInProgress is the number of rendered lines for an IN_PROGRESS card (includes progress bar).
+const cardHeightInProgress = 3
+
+// cardHeight returns the rendered line count for ticket t.
+func cardHeight(t models.Ticket) int {
+	if t.Status == models.StatusInProgress {
+		return cardHeightInProgress
+	}
+	return cardHeightNormal
+}
+
 func (c Column) visibleCards() int {
 	// column header (2 lines: label + divider) + border (2 lines: top + bottom)
 	innerH := c.height - 4
 	if innerH < 0 {
 		innerH = 0
 	}
-	if CardHeight == 0 {
+	if c.scrollOffset >= len(c.tickets) {
 		return 0
 	}
-	// Each card takes CardHeight lines + 1 spacer line between cards.
-	// For n cards: n*CardHeight + (n-1) spacers = n*(CardHeight+1) - 1
-	// So: n = (innerH + 1) / (CardHeight + 1)
-	return (innerH + 1) / (CardHeight + 1)
+	used := 0
+	count := 0
+	for _, t := range c.tickets[c.scrollOffset:] {
+		h := cardHeight(t)
+		need := h
+		if count > 0 {
+			need++ // spacer between cards
+		}
+		if used+need > innerH {
+			break
+		}
+		used += need
+		count++
+	}
+	return count
 }
 
 // Update handles key messages for cursor movement.
@@ -121,13 +146,15 @@ func statusColor(s models.Status) lipgloss.Color {
 		return styles.StatusDone
 	case models.StatusVerified:
 		return styles.StatusVerified
+	case models.StatusCanceled:
+		return styles.Muted // CANCELED tickets are normally filtered; shown if explicitly requested
 	default:
 		return styles.Muted
 	}
 }
 
 // View renders the column as a bordered panel.
-func (c Column) View() string {
+func (c Column) View(tickN int) string {
 	if c.width == 0 || c.height == 0 {
 		return ""
 	}
@@ -174,8 +201,8 @@ func (c Column) View() string {
 	} else {
 		for i := c.scrollOffset; i < end; i++ {
 			selected := (i == c.cursor) && c.focused
-			card := renderCard(c.tickets[i], innerWidth, selected, c.focused)
-			// Each card is CardHeight lines; pad with a blank spacer line between cards
+			card := renderCard(c.tickets[i], innerWidth, selected, c.focused, tickN)
+			// Each card is cardHeight(t) lines; pad with a blank spacer line between cards
 			for _, l := range strings.Split(card, "\n") {
 				lines = append(lines, " "+l+" ")
 			}

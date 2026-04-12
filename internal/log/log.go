@@ -3,6 +3,7 @@ package log
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 	"strconv"
 	"strings"
@@ -77,36 +78,10 @@ ORDER BY created_at ASC`
 
 	entries := []models.LogEntry{}
 	for rows.Next() {
-		var entry models.LogEntry
-		var fromStr, toStr sql.NullString
-		var deletedAt sql.NullTime
-
-		if err := rows.Scan(
-			&entry.ID,
-			&entry.TicketID,
-			&entry.SessionID,
-			&entry.Kind,
-			&entry.Body,
-			&fromStr,
-			&toStr,
-			&entry.CreatedAt,
-			&deletedAt,
-		); err != nil {
+		entry, err := scanLogEntry(rows)
+		if err != nil {
 			return nil, fmt.Errorf("log.GetAll: scan: %w", err)
 		}
-
-		if fromStr.Valid {
-			s := models.Status(fromStr.String)
-			entry.FromState = &s
-		}
-		if toStr.Valid {
-			s := models.Status(toStr.String)
-			entry.ToState = &s
-		}
-		if deletedAt.Valid {
-			entry.DeletedAt = &deletedAt.Time
-		}
-
 		entries = append(entries, entry)
 	}
 
@@ -133,11 +108,30 @@ LIMIT 1`
 
 	row := db.QueryRowContext(context.Background(), q, id)
 
+	entry, err := scanLogEntry(row)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("log.LatestPlan: %w", err)
+	}
+
+	return &entry, nil
+}
+
+// scanner is satisfied by both *sql.Rows and *sql.Row.
+type scanner interface {
+	Scan(dest ...any) error
+}
+
+// scanLogEntry scans a single row into a models.LogEntry.
+// It handles NullString for from_state/to_state and NullTime for deleted_at.
+func scanLogEntry(s scanner) (models.LogEntry, error) {
 	var entry models.LogEntry
 	var fromStr, toStr sql.NullString
 	var deletedAt sql.NullTime
 
-	err = row.Scan(
+	if err := s.Scan(
 		&entry.ID,
 		&entry.TicketID,
 		&entry.SessionID,
@@ -147,27 +141,22 @@ LIMIT 1`
 		&toStr,
 		&entry.CreatedAt,
 		&deletedAt,
-	)
-	if err == sql.ErrNoRows {
-		return nil, nil
-	}
-	if err != nil {
-		return nil, fmt.Errorf("log.LatestPlan: %w", err)
+	); err != nil {
+		return models.LogEntry{}, err
 	}
 
 	if fromStr.Valid {
-		s := models.Status(fromStr.String)
-		entry.FromState = &s
+		st := models.Status(fromStr.String)
+		entry.FromState = &st
 	}
 	if toStr.Valid {
-		s := models.Status(toStr.String)
-		entry.ToState = &s
+		st := models.Status(toStr.String)
+		entry.ToState = &st
 	}
 	if deletedAt.Valid {
 		entry.DeletedAt = &deletedAt.Time
 	}
-
-	return &entry, nil
+	return entry, nil
 }
 
 // parseTicketID strips an optional "#" prefix and parses the string as int64.

@@ -2,12 +2,23 @@ package kanban
 
 import (
 	"database/sql"
+	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/ticket"
 )
+
+// TickMsg is sent by TickCmd on each animation frame for the comet bar.
+type TickMsg struct{}
+
+// TickCmd returns a tea.Cmd that fires after 32ms sending a TickMsg.
+func TickCmd() tea.Cmd {
+	return tea.Tick(32*time.Millisecond, func(time.Time) tea.Msg {
+		return TickMsg{}
+	})
+}
 
 // BoardLoadedMsg is the async result of LoadCmd.
 type BoardLoadedMsg struct {
@@ -19,6 +30,11 @@ type BoardLoadedMsg struct {
 // numCols is the number of visual columns in the board.
 const numCols = 3
 
+// boardLoadLimit is the maximum number of tickets fetched per board load.
+// The board renders at most a few dozen visible tickets; this cap prevents
+// runaway queries while staying effectively unbounded for any real project.
+const boardLoadLimit = 10000
+
 // Board is the top-level Kanban component: 3 status columns side by side.
 // IN_PROGRESS tickets appear visually inside the PLANNING column.
 // VERIFIED tickets appear visually inside the DONE column.
@@ -27,7 +43,11 @@ type Board struct {
 	activeCol int
 	width     int
 	height    int
+	tickN     int
 }
+
+// SetTickN returns a copy of the board with tickN set. Pure — safe to call in View().
+func (b Board) SetTickN(n int) Board { b.tickN = n; return b }
 
 var columnDefs = [numCols]struct {
 	status models.Status
@@ -113,6 +133,9 @@ func (b Board) ActiveCol() int {
 // Update routes key messages to column navigation or the active column.
 func (b Board) Update(msg tea.Msg) (Board, tea.Cmd) {
 	switch msg := msg.(type) {
+	case TickMsg:
+		b.tickN++
+		return b, TickCmd()
 	case tea.KeyMsg:
 		switch msg.String() {
 		case "left", "h":
@@ -142,7 +165,7 @@ func (b Board) Update(msg tea.Msg) (Board, tea.Cmd) {
 func (b Board) View() string {
 	views := make([]string, numCols)
 	for i := range b.columns {
-		views[i] = b.columns[i].View()
+		views[i] = b.columns[i].View(b.tickN)
 	}
 	return lipgloss.JoinHorizontal(lipgloss.Top, views...)
 }
@@ -152,21 +175,15 @@ func LoadCmd(db *sql.DB, epoch int) tea.Cmd {
 	return func() tea.Msg {
 		opts := ticket.ListOptions{
 			IncludeVerified: true,
+			ExcludeCanceled: true,
 			All:             false,
 			Sort:            "id",
-			Limit:           10000,
+			Limit:           boardLoadLimit,
 		}
 		result, err := ticket.List(opts, db)
 		if err != nil {
 			return BoardLoadedMsg{Epoch: epoch, Err: err}
 		}
-		// Filter out CANCELED tickets client-side
-		filtered := result.Tickets[:0]
-		for _, t := range result.Tickets {
-			if t.Status != models.StatusCanceled {
-				filtered = append(filtered, t)
-			}
-		}
-		return BoardLoadedMsg{Tickets: filtered, Epoch: epoch}
+		return BoardLoadedMsg{Tickets: result.Tickets, Epoch: epoch}
 	}
 }

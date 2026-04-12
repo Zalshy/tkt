@@ -52,7 +52,7 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 		id,
 	).Scan(&s.ID, &s.Role, &s.Name, &s.CreatedAt, &s.LastActive, &expiredAt)
 	if err != nil {
-		if err == sql.ErrNoRows {
+		if errors.Is(err, sql.ErrNoRows) {
 			return nil, fmt.Errorf("LoadActive: session %q not found in database (orphan file?)", id)
 		}
 		return nil, fmt.Errorf("LoadActive: query session: %w", err)

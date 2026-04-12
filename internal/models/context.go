@@ -2,7 +2,7 @@ package models
 
 import "time"
 
-// Context maps to the context_entries table.
+// Context maps to the project_context table.
 type Context struct {
 	ID        int
 	Title     string
