@@ -21,6 +21,10 @@ var ErrNoSession = errors.New("no active session")
 // distinguishable by humans and by errors.Is callers.
 var ErrExpiredSession = errors.New("session has expired")
 
+// maxRetries is the number of times Create will retry on a PK collision before
+// falling back to appending a hex suffix.
+const maxRetries = 5
+
 // LoadActive reads the active session from the .tkt/session file, looks it up in the
 // DB, updates last_active, and returns the Session.
 //
@@ -82,7 +86,14 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 
 // Create generates a new session ID, inserts a row into the sessions table, and
 // writes the bare session ID to the .tkt/session file.
-func Create(role models.Role, db *sql.DB, root string) (*models.Session, error) {
+//
+// name is the user-supplied session name (may be empty for random word). If non-empty,
+// it must already have been validated by ValidateName.
+//
+// Collision strategy: attempt insertSession directly. On PRIMARY KEY constraint error,
+// generate a new ID and retry up to maxRetries times. After maxRetries failures,
+// append a randomHex4 suffix and do one final insert.
+func Create(role models.Role, name string, db *sql.DB, root string) (*models.Session, error) {
 	// Validate the role is registered before inserting.
 	exists, err := rolepkg.Exists(string(role), db)
 	if err != nil {
@@ -92,8 +103,6 @@ func Create(role models.Role, db *sql.DB, root string) (*models.Session, error) 
 		return nil, fmt.Errorf("Create: role %q is not registered", role)
 	}
 
-	// Resolve the base role before generating the ID so that GenerateID receives
-	// the canonical base role (e.g. RoleArchitect) rather than a custom role name.
 	base, err := rolepkg.ResolveBase(string(role), db)
 	if err != nil {
 		return nil, fmt.Errorf("Create: resolve base role: %w", err)
@@ -104,12 +113,35 @@ func Create(role models.Role, db *sql.DB, root string) (*models.Session, error) 
 		EffectiveRole: base,
 	}
 
-	id := GenerateID(s.EffectiveRole)
-	s.ID = id
-	s.Name = id // human-readable label defaults to the ID; can be changed later
+	// Insert-and-catch collision retry loop.
+	// On PK constraint error, generate a fresh random word and retry.
+	id := GenerateID(name)
+	var insertErr error
+	for i := 0; i < maxRetries; i++ {
+		s.ID = id
+		s.Name = id
+		insertErr = insertSession(db, &s)
+		if insertErr == nil {
+			break
+		}
+		if !isPKConstraintError(insertErr) {
+			return nil, fmt.Errorf("Create: %w", insertErr)
+		}
+		// Collision — only retry with random words (not user-supplied names).
+		id = GenerateID("")
+	}
 
-	if err := insertSession(db, &s); err != nil {
-		return nil, fmt.Errorf("Create: %w", err)
+	// After maxRetries failures, fall back to word + hex suffix.
+	if insertErr != nil {
+		if !isPKConstraintError(insertErr) {
+			return nil, fmt.Errorf("Create: %w", insertErr)
+		}
+		id = GenerateID("") + "-" + randomHex4()
+		s.ID = id
+		s.Name = id
+		if err := insertSession(db, &s); err != nil {
+			return nil, fmt.Errorf("Create: %w", err)
+		}
 	}
 
 	// Write the bare ID with no newline to .tkt/session.
@@ -121,4 +153,14 @@ func Create(role models.Role, db *sql.DB, root string) (*models.Session, error) 
 	}
 
 	return &s, nil
+}
+
+// isPKConstraintError reports whether err is a SQLite PRIMARY KEY / UNIQUE constraint violation.
+func isPKConstraintError(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := err.Error()
+	return strings.Contains(msg, "UNIQUE constraint failed") ||
+		strings.Contains(msg, "PRIMARY KEY constraint failed")
 }

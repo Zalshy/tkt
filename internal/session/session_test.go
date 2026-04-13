@@ -4,7 +4,6 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
-	"regexp"
 	"strings"
 	"testing"
 
@@ -37,44 +36,97 @@ func setupDB(t *testing.T) (root string) {
 	return root
 }
 
-var idPattern = regexp.MustCompile(`^(arch|impl)-[a-z0-9]+-[0-9a-f]{4}$`)
+// ---------------------------------------------------------------------------
+// GenerateID tests (updated for new signature: GenerateID(name string))
+// ---------------------------------------------------------------------------
 
-func TestGenerateID_Format(t *testing.T) {
-	for _, role := range []models.Role{models.RoleArchitect, models.RoleImplementer} {
-		id := GenerateID(role)
-		if !idPattern.MatchString(id) {
-			t.Errorf("GenerateID(%s) = %q, does not match pattern %s", role, id, idPattern)
+// TestGenerateID_RandomWord verifies that GenerateID("") returns a word from the wordlist.
+func TestGenerateID_RandomWord(t *testing.T) {
+	id := GenerateID("")
+	found := false
+	for _, w := range wordlist {
+		if id == w {
+			found = true
+			break
+		}
+	}
+	if !found {
+		t.Errorf("GenerateID(\"\") = %q, not found in wordlist", id)
+	}
+}
+
+// TestGenerateID_RandomUnique verifies that repeated calls usually produce different words.
+// With 30 words in the pool the probability of 10 consecutive collisions is negligible.
+func TestGenerateID_RandomUnique(t *testing.T) {
+	seen := make(map[string]bool)
+	const calls = 30
+	for i := 0; i < calls; i++ {
+		seen[GenerateID("")] = true
+	}
+	if len(seen) < 2 {
+		t.Errorf("GenerateID produced only 1 distinct value in %d calls — wordlist or RNG broken", calls)
+	}
+}
+
+// TestGenerateID_NamePassthrough verifies that a non-empty name is returned unchanged.
+func TestGenerateID_NamePassthrough(t *testing.T) {
+	for _, name := range []string{"oak", "my-session", "foo123", "ab"} {
+		got := GenerateID(name)
+		if got != name {
+			t.Errorf("GenerateID(%q) = %q, want %q", name, got, name)
 		}
 	}
 }
 
-func TestGenerateID_Unique(t *testing.T) {
-	id1 := GenerateID(models.RoleImplementer)
-	id2 := GenerateID(models.RoleImplementer)
-	if id1 == id2 {
-		t.Errorf("GenerateID returned the same ID twice: %q", id1)
+// ---------------------------------------------------------------------------
+// ValidateName tests
+// ---------------------------------------------------------------------------
+
+func TestValidateName_Valid(t *testing.T) {
+	cases := []string{
+		"oak",
+		"my-session",
+		"foo123",
+		"ab",
+		"a",
+		"cedar-oak",
+		strings.Repeat("a", 32),
+	}
+	for _, name := range cases {
+		if err := ValidateName(name); err != nil {
+			t.Errorf("ValidateName(%q) returned unexpected error: %v", name, err)
+		}
 	}
 }
 
-func TestGenerateID_Prefix(t *testing.T) {
-	tests := []struct {
-		baseRole models.Role
-		wantPfx  string
+func TestValidateName_Invalid(t *testing.T) {
+	cases := []struct {
+		name string
+		desc string
 	}{
-		{models.RoleArchitect, "arch"},
-		{models.RoleImplementer, "impl"},
+		{"", "empty"},
+		{strings.Repeat("a", 33), "too long (33 chars)"},
+		{"-foo", "leading hyphen"},
+		{"foo-", "trailing hyphen"},
+		{"foo--bar", "consecutive hyphens"},
+		{"FOO", "uppercase"},
+		{"foo bar", "space"},
+		{"foo_bar", "underscore"},
 	}
-	for _, tt := range tests {
-		id := GenerateID(tt.baseRole)
-		if !strings.HasPrefix(id, tt.wantPfx+"-") {
-			t.Errorf("GenerateID(%s) = %q, want prefix %q", tt.baseRole, id, tt.wantPfx+"-")
+	for _, tc := range cases {
+		if err := ValidateName(tc.name); err == nil {
+			t.Errorf("ValidateName(%q) returned nil, want error (%s)", tc.name, tc.desc)
 		}
 	}
 }
 
-// TestCreate_CustomArchitectRole_IDPrefix verifies that a session created with a custom
-// role whose base_role is 'architect' receives an 'arch-' prefixed ID, not 'impl-'.
-func TestCreate_CustomArchitectRole_IDPrefix(t *testing.T) {
+// ---------------------------------------------------------------------------
+// Create tests (updated: Create now takes an extra name string param)
+// ---------------------------------------------------------------------------
+
+// TestCreate_CustomArchitectRole_IDIsWord verifies that a session created with a custom
+// architect role gets an ID from the wordlist (not the old arch-prefix format).
+func TestCreate_CustomArchitectRole_IDIsWord(t *testing.T) {
 	root := setupDB(t)
 	sqlDB, err := db.Open(root)
 	if err != nil {
@@ -88,12 +140,53 @@ func TestCreate_CustomArchitectRole_IDPrefix(t *testing.T) {
 		t.Fatalf("insert custom role: %v", err)
 	}
 
-	s, err := Create(models.Role("security_expert"), sqlDB, root)
+	s, err := Create(models.Role("security_expert"), "", sqlDB, root)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if !strings.HasPrefix(s.ID, "arch-") {
-		t.Errorf("Create with security_expert (base=architect): ID = %q, want arch- prefix", s.ID)
+	// ID must be a word from the wordlist (or word + hex suffix on extreme collision).
+	// At minimum it must not be the old arch-prefixed format.
+	if strings.HasPrefix(s.ID, "arch-") || strings.HasPrefix(s.ID, "impl-") {
+		t.Errorf("Create with security_expert: ID = %q still uses old role-prefix format", s.ID)
+	}
+}
+
+// TestCreate_WithName verifies that passing a name uses it as the session ID.
+func TestCreate_WithName(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	s, err := Create(models.RoleImplementer, "my-session", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if s.ID != "my-session" {
+		t.Errorf("Create with name: ID = %q, want %q", s.ID, "my-session")
+	}
+	if s.Name != "my-session" {
+		t.Errorf("Create with name: Name = %q, want %q", s.Name, "my-session")
+	}
+}
+
+// TestCreate_NameEqualsID verifies that s.Name always equals s.ID (the final resolved ID).
+func TestCreate_NameEqualsID(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	s, err := Create(models.RoleArchitect, "", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	if s.Name != s.ID {
+		t.Errorf("s.Name = %q, s.ID = %q — must be equal", s.Name, s.ID)
 	}
 }
 
@@ -105,7 +198,7 @@ func TestCreate_Roundtrip(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	s, err := Create(models.RoleImplementer, sqlDB, root)
+	s, err := Create(models.RoleImplementer, "", sqlDB, root)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -138,7 +231,7 @@ func TestLoadActive_ReturnsSession(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	created, err := Create(models.RoleArchitect, sqlDB, root)
+	created, err := Create(models.RoleArchitect, "", sqlDB, root)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -179,7 +272,7 @@ func TestLoadActive_ExpiredSession(t *testing.T) {
 	defer sqlDB.Close()
 
 	// Insert an expired session directly.
-	expiredID := "arch-test-aaaa"
+	expiredID := "expired-test"
 	if _, err := sqlDB.Exec(
 		`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
 		 VALUES (?, 'architect', 'test', datetime('now'), datetime('now'), datetime('2000-01-01'))`,
@@ -216,7 +309,7 @@ func TestLoadActive_CustomRole_EffectiveRole(t *testing.T) {
 		t.Fatalf("insert custom role: %v", err)
 	}
 
-	s, err := Create(models.Role("security_expert"), sqlDB, root)
+	s, err := Create(models.Role("security_expert"), "", sqlDB, root)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -251,11 +344,11 @@ func TestLoadActive_UnknownRole_Error(t *testing.T) {
 
 	// Insert a session row directly using a role not present in the roles table.
 	if _, err := sqlDB.Exec(
-		`INSERT INTO sessions (id, role, name) VALUES ('arch-ghost-0000', 'ghost_role', 'ghost')`,
+		`INSERT INTO sessions (id, role, name) VALUES ('ghost-session', 'ghost_role', 'ghost')`,
 	); err != nil {
 		t.Fatalf("insert ghost session: %v", err)
 	}
-	if err := os.WriteFile(project.SessionFile(root), []byte("arch-ghost-0000"), 0o644); err != nil {
+	if err := os.WriteFile(project.SessionFile(root), []byte("ghost-session"), 0o644); err != nil {
 		t.Fatalf("write session file: %v", err)
 	}
 
@@ -278,7 +371,7 @@ func TestCreate_UnregisteredRole_Error(t *testing.T) {
 	}
 	defer sqlDB.Close()
 
-	_, err = Create(models.Role("phantom"), sqlDB, root)
+	_, err = Create(models.Role("phantom"), "", sqlDB, root)
 	if err == nil {
 		t.Fatal("Create succeeded with unregistered role, want error")
 	}

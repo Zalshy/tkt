@@ -42,12 +42,18 @@ func runInit(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf(".tkt/ already exists in %s", dir)
 	}
 
-	// Create .tkt/ directory.
-	if err := os.MkdirAll(tktDir, 0o755); err != nil {
+	// Create .tkt/ directory with private permissions.
+	if err := os.MkdirAll(tktDir, 0o700); err != nil {
 		return fmt.Errorf("create .tkt/: %w", err)
+	}
+	// Explicit Chmod guarantees mode regardless of process umask.
+	// Non-fatal: warn but do not abort on filesystems without permission support.
+	if err := os.Chmod(tktDir, 0o700); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not set .tkt/ permissions: %v\n", err)
 	}
 
 	// Open (create + migrate) the database.
+	// db.Open enforces 0600 on the DB file after Ping succeeds.
 	database, err := db.Open(dir)
 	if err != nil {
 		return fmt.Errorf("init db: %w", err)

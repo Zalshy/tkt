@@ -55,7 +55,10 @@ tkt new "<title>"                   Create a ticket
 tkt list                            List open tickets
 tkt show <id>                       Show a ticket with full log
 tkt advance <id>                    Move a ticket to the next state
-tkt plan <id>                       Write or revise a ticket plan
+tkt plan <id>                       Write or revise a ticket plan (opens $EDITOR)
+tkt plan <id> --body "<text>"       Supply plan inline
+tkt plan <id> --stdin               Read plan from stdin (pipe)
+tkt plan <id> --file <path>         Read plan from file
 tkt comment <id> "<msg>"            Add a comment to a ticket
 tkt depends <id> --on <ids>         Declare ticket dependencies
 tkt context readall/add/update/delete  Manage project context entries
@@ -87,6 +90,25 @@ The result: every piece of work has a written, reviewed, timestamped specificati
 Implementer picks up + writes plan  →  Architect approves  →  Implementer executes  →  Architect verifies
            PLANNING                        IN_PROGRESS                DONE                  VERIFIED
 ```
+
+### Non-interactive plan input
+
+Three flags allow plan content to be supplied without opening `$EDITOR`:
+
+```bash
+# inline string
+tkt plan 42 --body "## Plan
+...content..."
+
+# pipe from stdin — ideal for LLM agents
+echo "## Plan" | tkt plan 42 --stdin
+cat plan.md    | tkt plan 42 --stdin
+
+# from file — write in your editor, then commit
+tkt plan 42 --file ./drafts/plan-42.md
+```
+
+All three are mutually exclusive. An empty body is an error.
 
 ### Full lifecycle
 

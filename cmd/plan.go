@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"strconv"
@@ -27,6 +28,11 @@ var planCmd = &cobra.Command{
 func init() {
 	rootCmd.AddCommand(planCmd)
 	planCmd.Flags().String("body", "", "plan body for non-interactive use (skips $EDITOR when set)")
+	planCmd.Flags().Bool("stdin", false, "read plan body from stdin")
+	planCmd.Flags().String("file", "", "read plan body from file at path")
+	planCmd.MarkFlagsMutuallyExclusive("body", "stdin")
+	planCmd.MarkFlagsMutuallyExclusive("body", "file")
+	planCmd.MarkFlagsMutuallyExclusive("stdin", "file")
 }
 
 func runPlan(cmd *cobra.Command, args []string) error {
@@ -58,12 +64,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)
 	}
 
-	planBody, err := cmd.Flags().GetString("body")
+	planBody, err := readPlanBody(cmd)
 	if err != nil {
-		return fmt.Errorf("plan: get --body flag: %w", err)
+		return err
 	}
-	planBody = strings.TrimSpace(planBody)
 
+	// Non-empty planBody means a flag was supplied — save and return.
+	// ("", nil) means no flag set; fall through to $EDITOR path below.
 	if planBody != "" {
 		if err := log.Append(t.ID, "plan", planBody, nil, nil, sess, database); err != nil {
 			return fmt.Errorf("plan: save: %w", err)
@@ -125,6 +132,53 @@ func runPlan(cmd *cobra.Command, args []string) error {
 
 	fmt.Fprintf(cmd.OutOrStdout(), "Plan updated for #%d\n", t.ID)
 	return nil
+}
+
+// readPlanBody reads plan content from whichever of --body, --stdin, or --file was supplied.
+// Returns ("", nil) when no flag is set — caller should fall through to $EDITOR.
+func readPlanBody(cmd *cobra.Command) (string, error) {
+	body, err := cmd.Flags().GetString("body")
+	if err != nil {
+		return "", fmt.Errorf("plan: get --body flag: %w", err)
+	}
+	if body = strings.TrimSpace(body); body != "" {
+		return body, nil
+	}
+
+	useStdin, err := cmd.Flags().GetBool("stdin")
+	if err != nil {
+		return "", fmt.Errorf("plan: get --stdin flag: %w", err)
+	}
+	if useStdin {
+		raw, err := io.ReadAll(cmd.InOrStdin())
+		if err != nil {
+			return "", fmt.Errorf("plan: read stdin: %w", err)
+		}
+		body = strings.TrimSpace(string(raw))
+		if body == "" {
+			return "", fmt.Errorf("plan: body is empty")
+		}
+		return body, nil
+	}
+
+	filePath, err := cmd.Flags().GetString("file")
+	if err != nil {
+		return "", fmt.Errorf("plan: get --file flag: %w", err)
+	}
+	if filePath != "" {
+		raw, err := os.ReadFile(filePath)
+		if err != nil {
+			return "", fmt.Errorf("plan: read file: %w", err)
+		}
+		body = strings.TrimSpace(string(raw))
+		if body == "" {
+			return "", fmt.Errorf("plan: body is empty")
+		}
+		return body, nil
+	}
+
+	// No flag set — signal caller to fall through to $EDITOR.
+	return "", nil
 }
 
 // resolveEditor picks an editor binary and any extra args from the $EDITOR env value.

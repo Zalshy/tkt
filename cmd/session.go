@@ -17,6 +17,7 @@ import (
 var (
 	sessionRole string
 	sessionEnd  bool
+	sessionName string
 )
 
 var sessionCmd = &cobra.Command{
@@ -32,12 +33,17 @@ With --end: mark the current session as expired.`,
 func init() {
 	sessionCmd.Flags().StringVar(&sessionRole, "role", "", "role for the new session: a registered role (e.g. architect or implementer)")
 	sessionCmd.Flags().BoolVar(&sessionEnd, "end", false, "mark the current session as expired")
+	sessionCmd.Flags().StringVar(&sessionName, "name", "", "explicit session name (requires --role); lowercase alphanumeric + hyphens, max 32 chars")
 	sessionCmd.MarkFlagsMutuallyExclusive("role", "end")
 
 	rootCmd.AddCommand(sessionCmd)
 }
 
 func runSession(cmd *cobra.Command, args []string) error {
+	// --name requires --role; reject early before any DB work.
+	if sessionName != "" && sessionRole == "" {
+		return fmt.Errorf("--name requires --role")
+	}
 	switch {
 	case sessionRole != "":
 		return runSessionCreate(cmd)
@@ -48,8 +54,15 @@ func runSession(cmd *cobra.Command, args []string) error {
 	}
 }
 
-// runSessionCreate handles `tkt session --role <role>`.
+// runSessionCreate handles `tkt session --role <role> [--name <name>]`.
 func runSessionCreate(cmd *cobra.Command) error {
+	// Validate --name before opening the DB.
+	if sessionName != "" {
+		if err := session.ValidateName(sessionName); err != nil {
+			return fmt.Errorf("session: invalid name: %w", err)
+		}
+	}
+
 	root, err := requireRoot()
 	if err != nil {
 		return err
@@ -69,7 +82,7 @@ func runSessionCreate(cmd *cobra.Command) error {
 		return fmt.Errorf("invalid role %q — not a registered role", sessionRole)
 	}
 
-	s, err := session.Create(models.Role(sessionRole), database, root)
+	s, err := session.Create(models.Role(sessionRole), sessionName, database, root)
 	if err != nil {
 		return fmt.Errorf("session: create: %w", err)
 	}

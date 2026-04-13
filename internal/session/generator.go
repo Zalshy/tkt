@@ -5,56 +5,67 @@ import (
 	"encoding/hex"
 	"fmt"
 	mrand "math/rand"
-	"os"
 	"regexp"
-	"strings"
-
-	"github.com/zalshy/tkt/internal/models"
 )
 
-// nonAlphanumeric strips anything that is not a lowercase ASCII letter or digit.
-var nonAlphanumeric = regexp.MustCompile(`[^a-z0-9]`)
+// wordlist is the pool from which random session IDs are drawn.
+var wordlist = []string{
+	"cedar", "oak", "pine", "birch", "elm", "ash", "ivy", "vale", "cove", "moor",
+	"dusk", "dawn", "fern", "reed", "moss", "clay", "flint", "sage", "wren", "crow",
+	"haze", "gale", "tern", "lark", "bolt", "gust", "tide", "reef", "dune", "crag",
+}
 
-// GenerateID produces a session ID in the format:
+// namePattern is the validation regex for user-supplied session names.
+// Allows lowercase alphanumeric and internal hyphens; no leading/trailing/consecutive hyphens.
+// Minimum 2 characters (single char is also accepted when no hyphen is involved — the
+// regex allows [a-z0-9] alone for the single-char case via the alternation).
+var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
+
+// consecutiveHyphens matches two or more hyphens in a row.
+var consecutiveHyphens = regexp.MustCompile(`--`)
+
+// GenerateID returns a session ID.
 //
-//	{role_prefix}-{username}-{4_char_hex}
+// If name is non-empty it is returned as-is (caller must have already validated it
+// via ValidateName). If name is empty a random word is drawn from the wordlist.
 //
-// Examples: arch-alice-3f9a, impl-bob-7c2e
+// This function does NOT guarantee uniqueness — collision handling is the
+// responsibility of Create, which retries on PK constraint errors.
+func GenerateID(name string) string {
+	if name != "" {
+		return name
+	}
+	return wordlist[mrand.Intn(len(wordlist))] //nolint:gosec
+}
+
+// ValidateName checks that a user-supplied session name conforms to the naming rules:
+//   - Lowercase alphanumeric + hyphens only
+//   - No leading or trailing hyphen
+//   - No consecutive hyphens
+//   - At least 1 character, at most 32 characters
 //
-// baseRole must be the resolved base role (models.RoleArchitect or models.RoleImplementer),
-// not a custom role name. Call rolepkg.ResolveBase before invoking this function.
-func GenerateID(baseRole models.Role) string {
-	var prefix string
-	switch baseRole {
-	case models.RoleArchitect:
-		prefix = "arch"
-	default:
-		prefix = "impl"
+// Returns a descriptive error if the name is invalid, nil otherwise.
+func ValidateName(name string) error {
+	if len(name) == 0 {
+		return fmt.Errorf("session name must not be empty")
 	}
-
-	// Derive username from environment.
-	username := os.Getenv("USER")
-	if username == "" {
-		username = os.Getenv("USERNAME")
+	if len(name) > 32 {
+		return fmt.Errorf("session name %q exceeds 32-character limit (%d chars)", name, len(name))
 	}
-	username = nonAlphanumeric.ReplaceAllString(strings.ToLower(username), "")
-	if username == "" {
-		username = "user"
+	if consecutiveHyphens.MatchString(name) {
+		return fmt.Errorf("session name %q contains consecutive hyphens", name)
 	}
-
-	// Generate 4-char hex suffix using crypto/rand; fall back to math/rand.
-	suffix := randomHex4()
-
-	return fmt.Sprintf("%s-%s-%s", prefix, username, suffix)
+	if !namePattern.MatchString(name) {
+		return fmt.Errorf("session name %q is invalid: use lowercase letters, digits, and non-leading/trailing hyphens only", name)
+	}
+	return nil
 }
 
 // randomHex4 returns a 4-character lowercase hex string.
 // Uses crypto/rand for security; falls back to math/rand if unavailable.
-// The non-criticality of session IDs makes the math/rand fallback acceptable.
 func randomHex4() string {
 	buf := make([]byte, 2)
 	if _, err := rand.Read(buf); err != nil {
-		// Extremely rare; fall back to math/rand global source.
 		n := mrand.Int63() //nolint:gosec
 		buf[0] = byte(n)
 		buf[1] = byte(n >> 8)

@@ -125,6 +125,17 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
     )`)
 	}
 
+	// SECURITY: dynamic query assembly is safe — no user input reaches the SQL string.
+	// - WHERE fragments appended above ("t.deleted_at IS NULL", "t.status = ?",
+	//   "t.status != 'VERIFIED'", "t.status != 'CANCELED'", the NOT EXISTS subquery)
+	//   are hardcoded string literals; never derived from user input.
+	// - Hardcoded status literals in WHERE ('VERIFIED', 'CANCELED') are safe constants.
+	// - ORDER BY is chosen from two hardcoded literals ("t.updated_at DESC",
+	//   "t.id DESC") via the `opts.Sort == "id"` guard; user input cannot inject
+	//   arbitrary SQL here.
+	// - All user-supplied values (status filter, limit) are passed via ? placeholders,
+	//   never interpolated into the query string.
+
 	// ORDER BY
 	orderBy := "t.updated_at DESC"
 	if opts.Sort == "id" {

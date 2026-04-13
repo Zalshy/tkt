@@ -53,7 +53,7 @@ func WriteProject(root string, cfg *ProjectConfig) error {
 		return fmt.Errorf("write project config: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("write project config: %w", err)
 	}
 

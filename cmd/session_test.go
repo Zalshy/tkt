@@ -24,10 +24,12 @@ func runSessionInDir(t *testing.T, dir string, setupFlags func()) (string, error
 	// which would run at test end and corrupt subsequent calls in the same test).
 	savedRole := sessionRole
 	savedEnd := sessionEnd
+	savedName := sessionName
 	savedRootDir := rootDir
 	defer func() {
 		sessionRole = savedRole
 		sessionEnd = savedEnd
+		sessionName = savedName
 		rootDir = savedRootDir
 		sessionCmd.SetOut(nil)
 	}()
@@ -35,6 +37,7 @@ func runSessionInDir(t *testing.T, dir string, setupFlags func()) (string, error
 	// Reset flags to zero before caller overrides.
 	sessionRole = ""
 	sessionEnd = false
+	sessionName = ""
 	rootDir = dir
 
 	// Caller configures flags.
@@ -293,6 +296,72 @@ func TestSession_EndNoSession(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "no active session") {
 		t.Errorf("expected 'no active session' in error, got: %v", err)
+	}
+}
+
+// TestSession_CreateWithName verifies --role architect --name foo uses "foo" as session ID.
+func TestSession_CreateWithName(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	out, err := runSessionInDir(t, dir, func() {
+		sessionRole = "architect"
+		sessionName = "my-session"
+	})
+	if err != nil {
+		t.Fatalf("runSession: %v", err)
+	}
+
+	if !strings.Contains(out, "my-session") {
+		t.Errorf("expected 'my-session' in output, got: %q", out)
+	}
+
+	data, err := os.ReadFile(project.SessionFile(dir))
+	if err != nil {
+		t.Fatalf("read session file: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "my-session" {
+		t.Errorf("session file = %q, want 'my-session'", strings.TrimSpace(string(data)))
+	}
+}
+
+// TestSession_NameWithoutRole verifies --name without --role returns an error.
+func TestSession_NameWithoutRole(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	_, err := runSessionInDir(t, dir, func() {
+		sessionName = "my-session"
+		// sessionRole intentionally left empty
+	})
+	if err == nil {
+		t.Fatal("expected error for --name without --role, got nil")
+	}
+	if !strings.Contains(err.Error(), "--name requires --role") {
+		t.Errorf("error = %q, want '--name requires --role'", err.Error())
+	}
+}
+
+// TestSession_InvalidName verifies --name with invalid value returns a validation error.
+func TestSession_InvalidName(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	_, err := runSessionInDir(t, dir, func() {
+		sessionRole = "architect"
+		sessionName = "-bad-name"
+	})
+	if err == nil {
+		t.Fatal("expected error for invalid name, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid name") {
+		t.Errorf("error = %q, want it to mention 'invalid name'", err.Error())
 	}
 }
 

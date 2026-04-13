@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/zalshy/tkt/internal/project"
@@ -36,6 +37,12 @@ func Open(projectRoot string) (db *sql.DB, openErr error) {
 	if openErr = db.Ping(); openErr != nil {
 		openErr = fmt.Errorf("db.Open: ping: %w", wrapSQLiteError(openErr))
 		return
+	}
+
+	// Enforce 0600 on the DB file. Non-fatal: some filesystems (FAT32, certain
+	// network mounts) do not support permission bits; warn but do not abort.
+	if err := os.Chmod(path, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not set db permissions: %v\n", err)
 	}
 
 	// Enable WAL mode for concurrent reads during TUI polling.

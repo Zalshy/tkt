@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"os"
 	"strconv"
 	"strings"
 	"testing"
@@ -152,5 +153,243 @@ func TestPlan_BodyFlag(t *testing.T) {
 	}
 	if entry.Body != "my plan content" {
 		t.Errorf("expected body %q, got %q", "my plan content", entry.Body)
+	}
+}
+
+// TestPlan_StdinFlag verifies that --stdin reads piped input, trims whitespace, and saves.
+func TestPlan_StdinFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-stdin-0001")
+
+	id := seedTicketWithStatus(t, dir, "Stdin flag test ticket", "PLANNING")
+
+	if err := planCmd.Flags().Set("stdin", "true"); err != nil {
+		t.Fatalf("set --stdin flag: %v", err)
+	}
+	defer planCmd.Flags().Set("stdin", "false") //nolint:errcheck
+
+	// Provide input via cmd.InOrStdin().
+	planCmd.SetIn(strings.NewReader("  ## Plan from stdin\n  content  \n"))
+	defer planCmd.SetIn(nil)
+
+	out, err := runPlanInDir(t, dir, []string{id})
+	if err != nil {
+		t.Fatalf("runPlan with --stdin: %v", err)
+	}
+
+	if !strings.Contains(out, "Plan updated") {
+		t.Errorf("expected 'Plan updated' in output, got: %q", out)
+	}
+
+	// Verify stored body is trimmed.
+	savedRootDir := rootDir
+	rootDir = dir
+	defer func() { rootDir = savedRootDir }()
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	idInt, _ := strconv.ParseInt(id, 10, 64)
+	entry, err := log.LatestPlan(strconv.FormatInt(idInt, 10), database)
+	if err != nil {
+		t.Fatalf("LatestPlan: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected a plan log entry, got nil")
+	}
+	want := "## Plan from stdin\n  content"
+	if entry.Body != want {
+		t.Errorf("expected body %q, got %q", want, entry.Body)
+	}
+}
+
+// TestPlan_FileFlag verifies that --file reads from a temp file, trims whitespace, and saves.
+func TestPlan_FileFlag(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-file-0001")
+
+	id := seedTicketWithStatus(t, dir, "File flag test ticket", "PLANNING")
+
+	// Write plan content to a temp file.
+	planFile, err := os.CreateTemp("", "plan-test-*.md")
+	if err != nil {
+		t.Fatalf("create temp plan file: %v", err)
+	}
+	defer os.Remove(planFile.Name())
+	if _, err := planFile.WriteString("  ## Plan from file\n  content  \n"); err != nil {
+		t.Fatalf("write temp plan file: %v", err)
+	}
+	planFile.Close()
+
+	if err := planCmd.Flags().Set("file", planFile.Name()); err != nil {
+		t.Fatalf("set --file flag: %v", err)
+	}
+	defer planCmd.Flags().Set("file", "") //nolint:errcheck
+
+	out, err := runPlanInDir(t, dir, []string{id})
+	if err != nil {
+		t.Fatalf("runPlan with --file: %v", err)
+	}
+
+	if !strings.Contains(out, "Plan updated") {
+		t.Errorf("expected 'Plan updated' in output, got: %q", out)
+	}
+
+	// Verify stored body is trimmed.
+	savedRootDir := rootDir
+	rootDir = dir
+	defer func() { rootDir = savedRootDir }()
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	defer database.Close()
+
+	idInt, _ := strconv.ParseInt(id, 10, 64)
+	entry, err := log.LatestPlan(strconv.FormatInt(idInt, 10), database)
+	if err != nil {
+		t.Fatalf("LatestPlan: %v", err)
+	}
+	if entry == nil {
+		t.Fatal("expected a plan log entry, got nil")
+	}
+	want := "## Plan from file\n  content"
+	if entry.Body != want {
+		t.Errorf("expected body %q, got %q", want, entry.Body)
+	}
+}
+
+// TestPlan_FileFlag_Nonexistent verifies that --file with a bad path returns a wrapped error.
+func TestPlan_FileFlag_Nonexistent(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-file-nonexist-0001")
+
+	id := seedTicketWithStatus(t, dir, "File nonexist test ticket", "PLANNING")
+
+	if err := planCmd.Flags().Set("file", "/no/such/file/plan.md"); err != nil {
+		t.Fatalf("set --file flag: %v", err)
+	}
+	defer planCmd.Flags().Set("file", "") //nolint:errcheck
+
+	_, err := runPlanInDir(t, dir, []string{id})
+	if err == nil {
+		t.Fatal("expected error for nonexistent file, got nil")
+	}
+	if !strings.Contains(err.Error(), "plan: read file") {
+		t.Errorf("expected 'plan: read file' in error, got: %v", err)
+	}
+}
+
+// TestPlan_StdinFlag_Empty verifies that --stdin with empty input returns an error.
+func TestPlan_StdinFlag_Empty(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-stdin-empty-0001")
+
+	id := seedTicketWithStatus(t, dir, "Stdin empty test ticket", "PLANNING")
+
+	if err := planCmd.Flags().Set("stdin", "true"); err != nil {
+		t.Fatalf("set --stdin flag: %v", err)
+	}
+	defer planCmd.Flags().Set("stdin", "false") //nolint:errcheck
+
+	// Provide empty input.
+	planCmd.SetIn(strings.NewReader("   \n   "))
+	defer planCmd.SetIn(nil)
+
+	_, err := runPlanInDir(t, dir, []string{id})
+	if err == nil {
+		t.Fatal("expected error for empty stdin input, got nil")
+	}
+	if !strings.Contains(err.Error(), "plan: body is empty") {
+		t.Errorf("expected 'plan: body is empty' in error, got: %v", err)
+	}
+}
+
+// resetPlanFlags resets all three mutually-exclusive plan flags to their zero values.
+// Call at the start of any test that sets these flags to avoid cross-test leakage on the
+// shared planCmd global.
+func resetPlanFlags(t *testing.T) {
+	t.Helper()
+	planCmd.Flags().Set("body", "")    //nolint:errcheck
+	planCmd.Flags().Set("stdin", "false") //nolint:errcheck
+	planCmd.Flags().Set("file", "")    //nolint:errcheck
+}
+
+// TestPlan_MutualExclusion_BodyStdin verifies cobra rejects --body and --stdin together.
+func TestPlan_MutualExclusion_BodyStdin(t *testing.T) {
+	resetPlanFlags(t)
+	t.Cleanup(func() { resetPlanFlags(t) })
+
+	if err := planCmd.Flags().Set("body", "inline"); err != nil {
+		t.Fatalf("set --body: %v", err)
+	}
+	if err := planCmd.Flags().Set("stdin", "true"); err != nil {
+		t.Fatalf("set --stdin: %v", err)
+	}
+
+	err := planCmd.ValidateFlagGroups()
+	if err == nil {
+		t.Fatal("expected mutual exclusion error for --body + --stdin, got nil")
+	}
+	if !strings.Contains(err.Error(), "none of the others can be") {
+		t.Errorf("expected mutex error for --body + --stdin, got: %v", err)
+	}
+}
+
+// TestPlan_MutualExclusion_BodyFile verifies cobra rejects --body and --file together.
+func TestPlan_MutualExclusion_BodyFile(t *testing.T) {
+	resetPlanFlags(t)
+	t.Cleanup(func() { resetPlanFlags(t) })
+
+	if err := planCmd.Flags().Set("body", "inline"); err != nil {
+		t.Fatalf("set --body: %v", err)
+	}
+	if err := planCmd.Flags().Set("file", "/some/file.md"); err != nil {
+		t.Fatalf("set --file: %v", err)
+	}
+
+	err := planCmd.ValidateFlagGroups()
+	if err == nil {
+		t.Fatal("expected mutual exclusion error for --body + --file, got nil")
+	}
+	if !strings.Contains(err.Error(), "none of the others can be") {
+		t.Errorf("expected mutex error for --body + --file, got: %v", err)
+	}
+}
+
+// TestPlan_MutualExclusion_StdinFile verifies cobra rejects --stdin and --file together.
+func TestPlan_MutualExclusion_StdinFile(t *testing.T) {
+	resetPlanFlags(t)
+	t.Cleanup(func() { resetPlanFlags(t) })
+
+	if err := planCmd.Flags().Set("stdin", "true"); err != nil {
+		t.Fatalf("set --stdin: %v", err)
+	}
+	if err := planCmd.Flags().Set("file", "/some/file.md"); err != nil {
+		t.Fatalf("set --file: %v", err)
+	}
+
+	err := planCmd.ValidateFlagGroups()
+	if err == nil {
+		t.Fatal("expected mutual exclusion error for --stdin + --file, got nil")
+	}
+	if !strings.Contains(err.Error(), "none of the others can be") {
+		t.Errorf("expected mutex error for --stdin + --file, got: %v", err)
 	}
 }
