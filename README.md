@@ -54,12 +54,12 @@ tkt session --end                   End the current session
 tkt new "<title>"                   Create a ticket
 tkt list                            List open tickets
 tkt show <id>                       Show a ticket with full log
-tkt advance <id>                    Move a ticket to the next state
+tkt advance <id[,id...]>            Move tickets to next state
 tkt plan <id>                       Write or revise a ticket plan (opens $EDITOR)
 tkt plan <id> --body "<text>"       Supply plan inline
 tkt plan <id> --stdin               Read plan from stdin (pipe)
 tkt plan <id> --file <path>         Read plan from file
-tkt comment <id> "<msg>"            Add a comment to a ticket
+tkt comment <id[,id...]> "<msg>"    Add a comment to tickets
 tkt depends <id> --on <ids>         Declare ticket dependencies
 tkt context readall/add/update/delete  Manage project context entries
 tkt role create/list/delete         Manage custom roles
@@ -67,6 +67,17 @@ tkt doc add/list/read/archive       Manage documents
 tkt cleanup                         Expire stale sessions and run maintenance
 tkt monitor                         Read-only TUI dashboard (auto-refreshes every MonitorInterval seconds, default 5s)
 ```
+
+### Batch operations
+
+Both `advance` and `comment` accept comma-separated ticket IDs:
+
+```bash
+tkt advance 10,11,12 --note "closing batch"
+tkt comment 10,11,12 "see PR #42"
+```
+
+Successful tickets are applied even when others fail. All errors are printed after processing completes and the command exits non-zero.
 
 ## Ticket lifecycle
 

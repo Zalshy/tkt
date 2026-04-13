@@ -295,3 +295,62 @@ func TestAdvance_WithHashPrefix(t *testing.T) {
 		t.Errorf("expected %q in output, got: %q", wantTransition, out)
 	}
 }
+
+// TestAdvance_MultiID_AllSuccess verifies that all tickets in a comma-separated list
+// are advanced and output contains each transition line.
+func TestAdvance_MultiID_AllSuccess(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-multi-001")
+	id1 := seedTicketWithStatus(t, dir, "Ticket A", "TODO")
+	id2 := seedTicketWithStatus(t, dir, "Ticket B", "TODO")
+
+	raw := id1 + "," + id2
+	out, err := runAdvanceInDir(t, dir, []string{raw}, func() {
+		advanceNote = "batch advance"
+	})
+	if err != nil {
+		t.Fatalf("runAdvance multi-ID: %v", err)
+	}
+
+	want1 := fmt.Sprintf("#%s  TODO → PLANNING", id1)
+	want2 := fmt.Sprintf("#%s  TODO → PLANNING", id2)
+	if !strings.Contains(out, want1) {
+		t.Errorf("expected %q in output, got: %q", want1, out)
+	}
+	if !strings.Contains(out, want2) {
+		t.Errorf("expected %q in output, got: %q", want2, out)
+	}
+}
+
+// TestAdvance_MultiID_PartialFailure verifies successes are applied even when some fail,
+// errors are summarised at the end, and exit is non-zero.
+func TestAdvance_MultiID_PartialFailure(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-multi-002")
+	id1 := seedTicketWithStatus(t, dir, "Good ticket", "TODO")
+	// 99999 does not exist — will fail.
+	badID := "99999"
+
+	raw := id1 + "," + badID
+	out, err := runAdvanceInDir(t, dir, []string{raw}, func() {
+		advanceNote = "partial batch"
+	})
+	// Must return a non-nil sentinel error.
+	if err == nil {
+		t.Fatal("expected non-nil error for partial failure, got nil")
+	}
+	if err.Error() != "" {
+		t.Errorf("expected empty sentinel error, got: %v", err)
+	}
+	// Good ticket should appear in stdout.
+	want1 := fmt.Sprintf("#%s  TODO → PLANNING", id1)
+	if !strings.Contains(out, want1) {
+		t.Errorf("expected %q (success) in output, got: %q", want1, out)
+	}
+}

@@ -22,7 +22,7 @@ var (
 )
 
 var advanceCmd = &cobra.Command{
-	Use:   "advance <ticket-id>",
+	Use:   "advance <id[,id...]>",
 	Short: "Advance a ticket to the next state",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runAdvance,
@@ -36,12 +36,14 @@ func init() {
 }
 
 func runAdvance(cmd *cobra.Command, args []string) error {
-	// --note is required and must be non-empty.
 	if advanceNote == "" {
 		return fmt.Errorf("flag --note is required and must be non-empty")
 	}
 
-	ticketID := args[0]
+	ids, err := parseIDs(args[0])
+	if err != nil {
+		return fmt.Errorf("advance: %w", err)
+	}
 
 	// Validate --to before touching the DB.
 	var toStatus models.Status
@@ -71,61 +73,74 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("advance: load session: %w", err)
 	}
 
-	// Load the ticket to capture the from-state before Execute.
-	t, err := ticket.GetByID(ticketID, database)
-	if err != nil {
-		return fmt.Errorf("advance: %w", err)
-	}
-
-	fromStatus := t.Status
-
-	// Resolve the target state for output (mirrors what Execute does internally).
-	displayTo := toStatus
-	if displayTo == "" {
-		displayTo, err = state.NextState(fromStatus)
-		if err != nil {
-			return fmt.Errorf("advance: %w", err)
-		}
-	}
-
-	// Execute the transition.
-	if err := state.Execute(ticketID, toStatus, advanceNote, sess, database, advanceForce); err != nil {
-		// Soft-violation errors (role / isolation) must be printed with the exact §7
-		// format including the "Use --force" suffix. Detect by known substrings.
-		errText := err.Error()
-		if !advanceForce && (strings.Contains(errText, "requires role") || strings.Contains(errText, "requires a different session")) {
-			fmt.Fprintf(os.Stderr, "Error: %s\nUse --force to override (violation will be recorded)\n", errText)
-			cmd.SilenceErrors = true
-			return fmt.Errorf("")
-		}
-		return fmt.Errorf("advance: %w", err)
-	}
-
-	// Success — print the §7 transition output.
-	numericID := strings.TrimPrefix(ticketID, "#")
 	out := cmd.OutOrStdout()
-	fmt.Fprintf(out, "#%s  %s → %s\n", numericID, fromStatus, displayTo)
-	fmt.Fprintf(out, "Session: %s\n", sess.ID)
-	fmt.Fprintf(out, "Note: %q\n", advanceNote)
+	var errs []string
 
-	// Advisory dependency warning — informational only, never blocks.
-	numericIDInt, _ := strconv.ParseInt(numericID, 10, 64)
-	deps, err := ticket.GetDependencies(numericIDInt, database)
-	if err == nil {
-		var unresolved []models.Ticket
-		for _, d := range deps {
-			if d.Status != models.StatusVerified {
-				unresolved = append(unresolved, d)
+	for _, ticketID := range ids {
+		// Load the ticket to capture the from-state before Execute.
+		t, err := ticket.GetByID(ticketID, database)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+			continue
+		}
+
+		fromStatus := t.Status
+
+		// Resolve the target state for output (mirrors what Execute does internally).
+		displayTo := toStatus
+		if displayTo == "" {
+			displayTo, err = state.NextState(fromStatus)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+				continue
 			}
 		}
-		if len(unresolved) > 0 {
-			fmt.Fprintf(out, "\nWarning: #%s has %d unresolved %s\n",
-				numericID, len(unresolved), plural(len(unresolved), "dependency", "dependencies"))
-			for _, d := range unresolved {
-				fmt.Fprintf(out, "  ○ #%d   %s\n", d.ID, d.Status)
+
+		// Execute the transition.
+		if err := state.Execute(ticketID, toStatus, advanceNote, sess, database, advanceForce); err != nil {
+			errText := err.Error()
+			if !advanceForce && (strings.Contains(errText, "requires role") || strings.Contains(errText, "requires a different session")) {
+				errs = append(errs, fmt.Sprintf("#%s: %s\nUse --force to override (violation will be recorded)", ticketID, errText))
+				continue
 			}
-			fmt.Fprintf(out, "\nTransition recorded. Resolve dependencies before implementation begins.\n")
+			errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+			continue
 		}
+
+		// Success — print the transition output.
+		numericID := strings.TrimPrefix(ticketID, "#")
+		fmt.Fprintf(out, "#%s  %s → %s\n", numericID, fromStatus, displayTo)
+		fmt.Fprintf(out, "Session: %s\n", sess.ID)
+		fmt.Fprintf(out, "Note: %q\n", advanceNote)
+
+		// Advisory dependency warning — informational only, never blocks.
+		numericIDInt, _ := strconv.ParseInt(numericID, 10, 64)
+		deps, err := ticket.GetDependencies(numericIDInt, database)
+		if err == nil {
+			var unresolved []models.Ticket
+			for _, d := range deps {
+				if d.Status != models.StatusVerified {
+					unresolved = append(unresolved, d)
+				}
+			}
+			if len(unresolved) > 0 {
+				fmt.Fprintf(out, "\nWarning: #%s has %d unresolved %s\n",
+					numericID, len(unresolved), plural(len(unresolved), "dependency", "dependencies"))
+				for _, d := range unresolved {
+					fmt.Fprintf(out, "  ○ #%d   %s\n", d.ID, d.Status)
+				}
+				fmt.Fprintf(out, "\nTransition recorded. Resolve dependencies before implementation begins.\n")
+			}
+		}
+	}
+
+	if len(errs) > 0 {
+		fmt.Fprintf(os.Stderr, "%d error(s):\n", len(errs))
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  %s\n", e)
+		}
+		cmd.SilenceErrors = true
+		return fmt.Errorf("")
 	}
 
 	return nil

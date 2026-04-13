@@ -3,6 +3,7 @@ package cmd
 import (
 	"errors"
 	"fmt"
+	"os"
 
 	"github.com/spf13/cobra"
 	"github.com/zalshy/tkt/internal/db"
@@ -12,7 +13,7 @@ import (
 )
 
 var commentCmd = &cobra.Command{
-	Use:   "comment <ticket-id> \"<body>\"",
+	Use:   "comment <id[,id...]> \"<body>\"",
 	Short: "Add a message to a ticket's log",
 	Args:  cobra.ExactArgs(2),
 	RunE:  runComment,
@@ -26,6 +27,11 @@ func runComment(cmd *cobra.Command, args []string) error {
 	body := args[1]
 	if body == "" {
 		return fmt.Errorf("comment body is required")
+	}
+
+	ids, err := parseIDs(args[0])
+	if err != nil {
+		return fmt.Errorf("comment: %w", err)
 	}
 
 	root, err := requireRoot()
@@ -47,15 +53,32 @@ func runComment(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("comment: load session: %w", err)
 	}
 
-	t, err := ticket.GetByID(args[0], database)
-	if err != nil {
-		return err
+	out := cmd.OutOrStdout()
+	var errs []string
+
+	for _, ticketID := range ids {
+		t, err := ticket.GetByID(ticketID, database)
+		if err != nil {
+			errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+			continue
+		}
+
+		if err := tktlog.Append(t.ID, "message", body, nil, nil, sess, database); err != nil {
+			errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+			continue
+		}
+
+		fmt.Fprintf(out, "#%d  %s\n%q\n", t.ID, sess.ID, body)
 	}
 
-	if err := tktlog.Append(t.ID, "message", body, nil, nil, sess, database); err != nil {
-		return fmt.Errorf("comment: append: %w", err)
+	if len(errs) > 0 {
+		fmt.Fprintf(os.Stderr, "%d error(s):\n", len(errs))
+		for _, e := range errs {
+			fmt.Fprintf(os.Stderr, "  %s\n", e)
+		}
+		cmd.SilenceErrors = true
+		return fmt.Errorf("")
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "#%d  %s\n%q\n", t.ID, sess.ID, body)
 	return nil
 }
