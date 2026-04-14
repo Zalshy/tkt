@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"fmt"
+	"os"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/spf13/cobra"
@@ -36,6 +37,11 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 	cfg, err := config.LoadProject(root)
 	if err != nil {
 		return fmt.Errorf("monitor: load config: %w", err)
+	}
+
+	// Expire sessions inactive for >4h before rendering session counts.
+	if _, err := db.CleanupStaleSessions(database, false); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: session cleanup: %v\n", err)
 	}
 
 	model := tui.NewRootModel(database, cfg, root)
