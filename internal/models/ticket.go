@@ -12,6 +12,7 @@ const (
 	StatusDone       Status = "DONE"
 	StatusVerified   Status = "VERIFIED"
 	StatusCanceled   Status = "CANCELED"
+	StatusArchived   Status = "ARCHIVED"
 )
 
 // Ticket maps to the tickets table.

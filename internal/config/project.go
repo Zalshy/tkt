@@ -16,6 +16,10 @@ type ProjectConfig struct {
 	// MonitorInterval is the TUI poll interval in seconds.
 	// A value of 0 means "use the default" (2 seconds). Set by tkt init.
 	MonitorInterval int `json:"monitor_interval"`
+
+	// ArchiveKeep is the number of most-recent VERIFIED tickets to keep when
+	// bulk-archiving from the TUI. A value of 0 means "use the default" (10).
+	ArchiveKeep int `json:"archive_keep,omitempty"`
 }
 
 // projectConfigPath returns the path to the project config file.

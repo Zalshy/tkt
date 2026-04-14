@@ -19,13 +19,13 @@ type Execer interface {
 // Append inserts a new log entry for the given ticket.
 //
 // Validation rules:
-//   - kind must be "transition", "plan", or "message"
+//   - kind must be "transition", "plan", "message", or "usage"
 //   - body must be non-empty
 //   - if kind == "transition": both fromState and toState must be non-nil
 //   - if kind != "transition": both must be nil
 func Append(ticketID int64, kind, body string, fromState, toState *string, actor *models.Session, db Execer) error {
 	switch kind {
-	case "transition", "plan", "message":
+	case "transition", "plan", "message", "usage":
 		// valid
 	default:
 		return fmt.Errorf("log.Append: invalid kind %q", kind)

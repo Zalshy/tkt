@@ -15,6 +15,7 @@ var (
 	listLimit    int
 	listAll      bool
 	listVerified bool
+	listArchived bool
 	listSort     string
 	listReady    bool
 )
@@ -27,10 +28,11 @@ var listCmd = &cobra.Command{
 }
 
 func init() {
-	listCmd.Flags().StringVar(&listStatus, "status", "", "filter by status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED)")
+	listCmd.Flags().StringVar(&listStatus, "status", "", "filter by status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED)")
 	listCmd.Flags().IntVar(&listLimit, "limit", 10, "maximum number of tickets to show")
 	listCmd.Flags().BoolVar(&listAll, "all", false, "show all tickets including CANCELED and soft-deleted")
 	listCmd.Flags().BoolVar(&listVerified, "verified", false, "include VERIFIED tickets")
+	listCmd.Flags().BoolVar(&listArchived, "archived", false, "include ARCHIVED tickets")
 	listCmd.Flags().StringVar(&listSort, "sort", "updated", "sort order: updated or id")
 	listCmd.Flags().BoolVar(&listReady, "ready", false, "show only tickets with no unresolved dependencies")
 	rootCmd.AddCommand(listCmd)
@@ -38,13 +40,13 @@ func init() {
 
 var validStatuses = map[string]bool{
 	"TODO": true, "PLANNING": true, "IN_PROGRESS": true,
-	"DONE": true, "VERIFIED": true, "CANCELED": true,
+	"DONE": true, "VERIFIED": true, "CANCELED": true, "ARCHIVED": true,
 }
 
 func runList(cmd *cobra.Command, args []string) error {
 	// Validate flags before touching the DB.
 	if listStatus != "" && !validStatuses[listStatus] {
-		return fmt.Errorf("invalid --status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED", listStatus)
+		return fmt.Errorf("invalid --status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED", listStatus)
 	}
 	if listSort != "updated" && listSort != "id" {
 		return fmt.Errorf("invalid --sort %q: must be 'updated' or 'id'", listSort)
@@ -65,6 +67,7 @@ func runList(cmd *cobra.Command, args []string) error {
 		Limit:           listLimit,
 		All:             listAll,
 		IncludeVerified: listVerified,
+		IncludeArchived: listArchived,
 		Sort:            listSort,
 		Ready:           listReady,
 	}

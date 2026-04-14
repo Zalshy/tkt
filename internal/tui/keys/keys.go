@@ -40,6 +40,7 @@ var sections = []Section{
 			{"↑/↓ j/k", "navigate"},
 			{"enter", "open"},
 			{"/", "search"},
+			{"X", "bulk archive verified"},
 			{"q", "quit"},
 		},
 	},

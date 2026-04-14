@@ -1,6 +1,7 @@
 package output
 
 import (
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -56,13 +57,81 @@ func RenderDependencies(deps []models.Ticket) string {
 	return b.String()
 }
 
+// usageEntry holds a parsed usage log entry for display.
+type usageEntry struct {
+	SessionID  string
+	Tokens     int
+	Tools      int
+	DurationMs int
+	Agent      string
+	Label      string
+	CreatedAt  time.Time
+}
+
+// parseUsageBody parses the JSON body of a usage log entry.
+// Returns zero-value usageEntry on parse failure (graceful degradation).
+func parseUsageBody(e models.LogEntry) usageEntry {
+	u := usageEntry{
+		SessionID: e.SessionID,
+		CreatedAt: e.CreatedAt,
+	}
+	var raw struct {
+		Tokens     int    `json:"tokens"`
+		Tools      int    `json:"tools"`
+		DurationMs int    `json:"duration_ms"`
+		Agent      string `json:"agent"`
+		Label      string `json:"label"`
+	}
+	if err := json.Unmarshal([]byte(e.Body), &raw); err == nil {
+		u.Tokens = raw.Tokens
+		u.Tools = raw.Tools
+		u.DurationMs = raw.DurationMs
+		u.Agent = raw.Agent
+		u.Label = raw.Label
+	}
+	return u
+}
+
+// formatIntComma formats an integer with thousands separators (e.g. 78155 → "78,155").
+func formatIntComma(n int) string {
+	s := fmt.Sprintf("%d", n)
+	neg := n < 0
+	if neg {
+		s = s[1:]
+	}
+	result := []byte{}
+	for i, c := range []byte(s) {
+		pos := len(s) - i
+		if i > 0 && pos%3 == 0 {
+			result = append(result, ',')
+		}
+		result = append(result, c)
+	}
+	if neg {
+		return "-" + string(result)
+	}
+	return string(result)
+}
+
 // RenderTicket renders a single ticket in chat-view format.
 func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 	var b strings.Builder
 
-	// Phase 1 — Column alignment pre-pass
-	allIDs := []string{t.CreatedBy}
+	// Phase 1 — Extract usage entries BEFORE the main loop.
+	// Usage entries must not fall through to the default branch (which renders raw JSON as message rows).
+	var usageEntries []usageEntry
+	var nonUsageEntries []models.LogEntry
 	for _, e := range entries {
+		if e.Kind == "usage" {
+			usageEntries = append(usageEntries, parseUsageBody(e))
+		} else {
+			nonUsageEntries = append(nonUsageEntries, e)
+		}
+	}
+
+	// Phase 2 — Column alignment pre-pass (uses non-usage entries only).
+	allIDs := []string{t.CreatedBy}
+	for _, e := range nonUsageEntries {
 		allIDs = append(allIDs, e.SessionID)
 	}
 	maxWidth := 0
@@ -77,7 +146,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 		return id + strings.Repeat(" ", maxWidth-len(id))
 	}
 
-	// Phase 2 — Header
+	// Phase 3 — Header
 	b.WriteString(separator + "\n")
 	b.WriteString(fmt.Sprintf("#%d  ·  %s\n", t.ID, ColorStatus(t.Status)))
 	b.WriteString(t.Title + "\n")
@@ -87,7 +156,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 	b.WriteString(separator + "\n")
 	b.WriteString("\n")
 
-	// Phase 3 — Synthetic "created" entry
+	// Phase 4 — Synthetic "created" entry
 	b.WriteString(padID(t.CreatedBy) + "    ○ created\n")
 	if t.Description != "" {
 		for _, line := range strings.Split(t.Description, "\n") {
@@ -96,8 +165,8 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 	}
 	b.WriteString("\n")
 
-	// Phase 3 continued — entries loop
-	for _, e := range entries {
+	// Phase 4 continued — entries loop (non-usage only)
+	for _, e := range nonUsageEntries {
 		switch e.Kind {
 		case "transition":
 			fromStr := "?"
@@ -122,7 +191,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 				}
 			}
 		default:
-			// "message" and any other kind
+			// "message" and any other non-usage kind
 			lines := strings.Split(e.Body, "\n")
 			b.WriteString(padID(e.SessionID) + "    " + lines[0] + "\n")
 			for _, line := range lines[1:] {
@@ -132,10 +201,54 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 		b.WriteString("\n")
 	}
 
-	// Phase 4 — Footer
+	// Phase 5 — Token usage section (only if usage entries exist)
+	if len(usageEntries) > 0 {
+		b.WriteString(separator + "\n")
+		b.WriteString("Token usage:\n")
+
+		// Column widths for alignment.
+		maxSessW := 0
+		maxAgentW := 0
+		for _, u := range usageEntries {
+			if len(u.SessionID) > maxSessW {
+				maxSessW = len(u.SessionID)
+			}
+			if len(u.Agent) > maxAgentW {
+				maxAgentW = len(u.Agent)
+			}
+		}
+
+		totalTokens := 0
+		for _, u := range usageEntries {
+			totalTokens += u.Tokens
+
+			sessCol := u.SessionID + strings.Repeat(" ", maxSessW-len(u.SessionID))
+			agentCol := u.Agent + strings.Repeat(" ", maxAgentW-len(u.Agent))
+
+			row := fmt.Sprintf("  %s    %s    %s tokens", sessCol, agentCol, formatIntComma(u.Tokens))
+			if u.Tools > 0 {
+				row += fmt.Sprintf("  %s tools", formatIntComma(u.Tools))
+			}
+			if u.DurationMs > 0 {
+				secs := u.DurationMs / 1000
+				row += fmt.Sprintf("  %ds", secs)
+			}
+			row += "    " + u.CreatedAt.Format("2006-01-02")
+			if u.Label != "" {
+				row += "    " + u.Label
+			}
+			b.WriteString(row + "\n")
+		}
+
+		b.WriteString(fmt.Sprintf("Total: %s tokens across %d %s\n",
+			formatIntComma(totalTokens), len(usageEntries),
+			pluralEntries(len(usageEntries))))
+	}
+
+	// Phase 6 — Footer
 	b.WriteString(separator + "\n")
 
-	// Distinct session count
+	// Distinct session count (uses all entries for accurate count)
 	seen := map[string]struct{}{}
 	if t.CreatedBy != "" {
 		seen[t.CreatedBy] = struct{}{}
@@ -144,7 +257,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 		seen[e.SessionID] = struct{}{}
 	}
 
-	// Last activity time
+	// Last activity time (uses all entries)
 	var lastTime time.Time
 	if len(entries) > 0 {
 		lastTime = entries[len(entries)-1].CreatedAt
@@ -156,4 +269,11 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry) string {
 		len(seen), len(entries), formatRelativeTime(lastTime)))
 
 	return b.String()
+}
+
+func pluralEntries(n int) string {
+	if n == 1 {
+		return "entry"
+	}
+	return "entries"
 }

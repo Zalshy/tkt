@@ -18,11 +18,12 @@ import (
 type Kind int
 
 const (
-	KindNone   Kind = iota // 0 — sentinel; never stored in a slot
-	KindHelp               // 1 — help overlay; highest priority
-	KindDetail             // 2 — ticket detail modal overlay
-	KindToast              // 3 — toast notification; lowest priority
-	numKinds               // sentinel for array sizing; keep last
+	KindNone    Kind = iota // 0 — sentinel; never stored in a slot
+	KindHelp                // 1 — help overlay; highest priority
+	KindConfirm             // 2 — confirmation dialog
+	KindDetail              // 3 — ticket detail modal overlay
+	KindToast               // 4 — toast notification; lowest priority
+	numKinds                // sentinel for array sizing; keep last
 )
 
 // Modal holds the pre-rendered content string and the terminal width that was

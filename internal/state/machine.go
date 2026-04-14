@@ -31,6 +31,7 @@ var transitions = []Transition{
 	{models.StatusInProgress, models.StatusCanceled, nil, false},
 	{models.StatusDone, models.StatusVerified, []models.Role{models.RoleArchitect}, true},
 	{models.StatusDone, models.StatusInProgress, []models.Role{models.RoleArchitect}, false},
+	{models.StatusVerified, models.StatusArchived, nil, false},
 	{models.StatusCanceled, models.StatusTodo, nil, false},
 }
 
@@ -132,6 +133,8 @@ func NextState(from models.Status) (models.Status, error) {
 		return models.StatusVerified, fmt.Errorf("no natural next state for %s", from)
 	case models.StatusCanceled:
 		return models.StatusCanceled, fmt.Errorf("no natural next state for %s", from)
+	case models.StatusArchived:
+		return models.StatusArchived, fmt.Errorf("no natural next state for %s", from)
 	default:
 		return models.StatusTodo, fmt.Errorf("unknown status: %s", from)
 	}

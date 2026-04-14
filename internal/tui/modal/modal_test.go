@@ -95,7 +95,7 @@ func TestWidthFor(t *testing.T) {
 
 // TestOverlay_ContainsBoth verifies that the modal content appears in the Overlay output.
 func TestOverlay_ContainsBoth(t *testing.T) {
-	result := Overlay("background content", "modal content", 80, 24)
+	result := Overlay("modal content", 80, 24)
 	stripped := testutil.StripANSI(result)
 	if !strings.Contains(stripped, "modal content") {
 		t.Errorf("Overlay output does not contain %q; got: %q", "modal content", stripped)

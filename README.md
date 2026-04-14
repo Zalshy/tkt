@@ -54,35 +54,27 @@ tkt session --end                   End the current session
 tkt new "<title>"                   Create a ticket
 tkt list                            List open tickets
 tkt show <id>                       Show a ticket with full log
-tkt advance <id[,id...]>            Move tickets to next state
+tkt advance <id>                    Move a ticket to the next state
 tkt plan <id>                       Write or revise a ticket plan (opens $EDITOR)
 tkt plan <id> --body "<text>"       Supply plan inline
 tkt plan <id> --stdin               Read plan from stdin (pipe)
 tkt plan <id> --file <path>         Read plan from file
-tkt comment <id[,id...]> "<msg>"    Add a comment to tickets
+tkt comment <id> "<msg>"            Add a comment to a ticket
 tkt depends <id> --on <ids>         Declare ticket dependencies
 tkt context readall/add/update/delete  Manage project context entries
 tkt role create/list/delete         Manage custom roles
 tkt doc add/list/read/archive       Manage documents
+tkt search <query>                  Substring search across ticket titles and descriptions
+tkt log <id> --tokens N             Record token/tool/duration usage against a ticket
+tkt archive <id>                    Archive a VERIFIED ticket (terminal state)
 tkt cleanup                         Expire stale sessions and run maintenance
 tkt monitor                         Read-only TUI dashboard (auto-refreshes every MonitorInterval seconds, default 5s)
 ```
 
-### Batch operations
-
-Both `advance` and `comment` accept comma-separated ticket IDs:
-
-```bash
-tkt advance 10,11,12 --note "closing batch"
-tkt comment 10,11,12 "see PR #42"
-```
-
-Successful tickets are applied even when others fail. All errors are printed after processing completes and the command exits non-zero.
-
 ## Ticket lifecycle
 
 ```
-TODO → PLANNING → IN_PROGRESS → DONE → VERIFIED
+TODO → PLANNING → IN_PROGRESS → DONE → VERIFIED → ARCHIVED
 ```
 
 ### The PLANNING step
@@ -129,6 +121,50 @@ All three are mutually exclusive. An empty body is an error.
 - The **architect** verifies the code against the frozen plan (DONE → VERIFIED)
 
 Role and session isolation is enforced by the state machine — the same session that submitted a ticket cannot approve its own work.
+
+### ARCHIVED status
+
+VERIFIED tickets can be archived to clear board noise. ARCHIVED is a terminal state — it cannot be undone. Archived tickets are hidden from `tkt list` and the TUI monitor by default.
+
+```bash
+tkt archive 42
+tkt archive 42,43,44
+
+tkt list --archived          # include ARCHIVED tickets
+tkt list --status ARCHIVED   # show only ARCHIVED tickets
+```
+
+## Search
+
+Substring search across ticket titles and descriptions:
+
+```bash
+tkt search kanban                        # search all tickets
+tkt search kanban --title                # title only
+tkt search kanban --status IN_PROGRESS   # filter by status
+tkt search kanban --all                  # include all statuses
+```
+
+## Token logging
+
+Record agent usage against a ticket. Visible in `tkt show` as a Token usage section:
+
+```bash
+tkt log 42 --tokens 78155 --tools 88 --duration 386 --agent implementer
+tkt log 42 --tokens 12000 --label "planning pass"
+```
+
+All flags except `--tokens` are optional.
+
+## TUI monitor
+
+The TUI monitor (`tkt monitor`) shows a live kanban board. Key bindings:
+
+- Arrow keys / `h` `j` `k` `l` — navigate tickets
+- `X` — bulk-archive all VERIFIED tickets, keeping the 10 most recent (confirmation prompt)
+- `q` / `Ctrl+C` — quit
+
+The footer displays centered key hints. A session count line above the footer shows active sessions by role: `🧠 arch: N   ⚙️ impl: N`.
 
 ## License
 

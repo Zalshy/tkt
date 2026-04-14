@@ -1,6 +1,8 @@
 package footer
 
 import (
+	"fmt"
+
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/tui/keys"
 	"github.com/zalshy/tkt/internal/tui/styles"
@@ -50,11 +52,18 @@ func hintsFor(ctx Context) []Hint {
 	return out
 }
 
+// SessionCounts holds the number of active sessions per base role.
+type SessionCounts struct {
+	Arch int
+	Impl int
+}
+
 // Model holds the rendering state for the footer component.
 // All methods use value receivers and return by value — no hidden mutation.
 type Model struct {
-	width int
-	ctx   Context
+	width  int
+	ctx    Context
+	counts SessionCounts
 }
 
 // New returns a new Model with the given terminal width and active context.
@@ -74,15 +83,36 @@ func (m Model) SetContext(ctx Context) Model {
 	return m
 }
 
-// View renders the footer as a single line of key hint badges, truncated to
-// fit within m.width. When m.width is 0, no truncation is applied.
+// SetSessionCounts returns a copy of m with the session counts updated.
+func (m Model) SetSessionCounts(c SessionCounts) Model {
+	m.counts = c
+	return m
+}
+
+// View renders the footer as two lines joined with "\n":
+//  1. Session count line: "🧠 arch: N   ⚙️  impl: N" — muted style, centered.
+//  2. Key hint badges, truncated to fit within m.width.
+//
+// When m.width is 0, no truncation or centering is applied.
 func (m Model) View() string {
+	// — session count line —
+	sessionText := fmt.Sprintf(
+		"🧠 arch: %d   ⚙️  impl: %d",
+		m.counts.Arch,
+		m.counts.Impl,
+	)
+	muted := lipgloss.NewStyle().Foreground(styles.Muted)
+	sessionLine := lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(
+		muted.Render(sessionText),
+	)
+
+	// — hint line —
 	hints := hintsFor(m.ctx)
 	sep := "  "
 	result := ""
 
 	for i, h := range hints {
-		part := styles.KeyHint.Render(h.Key) + " " + lipgloss.NewStyle().Foreground(styles.Muted).Render(h.Label)
+		part := styles.KeyHint.Render(h.Key) + " " + muted.Render(h.Label)
 		candidate := result
 		if i > 0 {
 			candidate += sep
@@ -94,5 +124,9 @@ func (m Model) View() string {
 		result = candidate
 	}
 
-	return result
+	hintLine := result
+	if m.width > 0 {
+		hintLine = lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(result)
+	}
+	return sessionLine + "\n" + hintLine
 }

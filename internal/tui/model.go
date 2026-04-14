@@ -3,12 +3,17 @@ package tui
 import (
 	"database/sql"
 	"fmt"
+	"sort"
+	"strconv"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/config"
 	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/session"
+	"github.com/zalshy/tkt/internal/state"
 	"github.com/zalshy/tkt/internal/tui/footer"
 	"github.com/zalshy/tkt/internal/tui/header"
 	"github.com/zalshy/tkt/internal/tui/help"
@@ -21,10 +26,17 @@ import (
 )
 
 const headerHeight = 2
-const footerHeight = 1
+const footerHeight = 2
 
 // pollTickMsg is sent by pollCmd on each poll interval.
 type pollTickMsg struct{}
+
+// bulkArchiveDoneMsg is sent when the bulk-archive goroutine completes.
+type bulkArchiveDoneMsg struct {
+	archived int
+	failed   []string // ticket IDs that failed to archive
+	err      error
+}
 
 // pollCmd returns a tea.Cmd that fires after d, sending a pollTickMsg.
 func pollCmd(d time.Duration) tea.Cmd {
@@ -57,6 +69,13 @@ type RootModel struct {
 	// Full unfiltered ticket list, needed to re-apply search.Filter after query changes.
 	allTickets []models.Ticket
 
+	// sessionCounts holds the latest active session counts, refreshed on each board load.
+	sessionCounts footer.SessionCounts
+
+	// pendingArchive holds the set of tickets queued for bulk-archive, populated when
+	// the confirm modal is shown and cleared on cancel or after execution.
+	pendingArchive []models.Ticket
+
 	// modals holds the active overlay state. Named "modals" (not "modal") to avoid
 	// shadowing the modal package identifier inside RootModel methods.
 	modals modal.Manager
@@ -67,7 +86,10 @@ type RootModel struct {
 // receiver — any assignments inside Init are silently discarded.
 // No I/O is performed.
 func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
-	interval := time.Duration(cfg.MonitorInterval) * time.Second
+	var interval time.Duration
+	if cfg != nil {
+		interval = time.Duration(cfg.MonitorInterval) * time.Second
+	}
 	if interval <= 0 {
 		interval = 5 * time.Second
 	}
@@ -152,6 +174,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
 		}
 		m.allTickets = msg.Tickets
+		if counts, err := session.CountActive(m.db); err == nil {
+			m.sessionCounts = footer.SessionCounts{
+				Arch: counts[models.RoleArchitect],
+				Impl: counts[models.RoleImplementer],
+			}
+		}
 		if m.search.IsActive() {
 			allForCol := ticketsForVisualCol(msg.Tickets, m.board.ActiveStatus())
 			filtered := m.search.Filter(allForCol)
@@ -174,6 +202,27 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case bulkArchiveDoneMsg:
+		m.pendingArchive = nil
+		if msg.err != nil {
+			toastContent := toast.Render("Archive failed: "+msg.err.Error(), toast.Error, m.width)
+			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
+			return m, tea.Batch(append(cmds, toast.ExpireCmd(), kanban.LoadCmd(m.db, m.epoch))...)
+		}
+		var toastText string
+		if len(msg.failed) > 0 {
+			toastText = fmt.Sprintf("Archived %d ticket(s). %d failed (IDs: %s).", msg.archived, len(msg.failed), strings.Join(msg.failed, ", "))
+		} else {
+			toastText = fmt.Sprintf("Archived %d ticket(s).", msg.archived)
+		}
+		toastKind := toast.Success
+		if len(msg.failed) > 0 {
+			toastKind = toast.Error
+		}
+		toastContent := toast.Render(toastText, toastKind, m.width)
+		m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
+		return m, tea.Batch(append(cmds, toast.ExpireCmd(), kanban.LoadCmd(m.db, m.epoch))...)
+
 	case toast.ToastExpiredMsg:
 		m.modals = m.modals.Dismiss(modal.KindToast)
 
@@ -184,6 +233,20 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 
 		switch {
+		// Confirm modal — handle y/n before general modal dismissal.
+		case m.modals.HasActive() && func() bool { k, _ := m.modals.Active(); return k == modal.KindConfirm }():
+			switch msg.String() {
+			case "y", "Y", "enter":
+				m.modals = m.modals.Dismiss(modal.KindConfirm)
+				if len(m.pendingArchive) > 0 {
+					return m, bulkArchiveCmd(m.db, m.root, m.pendingArchive)
+				}
+			default:
+				// n, N, esc, or any other key cancels
+				m.modals = m.modals.Dismiss(modal.KindConfirm)
+				m.pendingArchive = nil
+			}
+
 		case msg.Type == tea.KeyEsc && m.modals.HasActive():
 			kind, _ := m.modals.Active()
 			m.modals = m.modals.Dismiss(kind)
@@ -202,6 +265,29 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		case msg.String() == "/" && !m.search.IsActive():
 			m.search = m.search.Open()
 			m.ftr = m.ftr.SetContext(footer.ContextSearch)
+
+		// X — bulk-archive VERIFIED tickets (keep N most recent).
+		case msg.String() == "X" && !m.search.IsActive() && !m.modals.HasActive():
+			keep := archiveKeep(m.cfg)
+			// Collect VERIFIED tickets from allTickets, sorted newest first.
+			var verified []models.Ticket
+			for _, t := range m.allTickets {
+				if t.Status == models.StatusVerified {
+					verified = append(verified, t)
+				}
+			}
+			sort.Slice(verified, func(i, j int) bool {
+				return verified[i].UpdatedAt.After(verified[j].UpdatedAt)
+			})
+			// Tickets to archive = everything beyond the keep window.
+			if len(verified) <= keep {
+				toastContent := toast.Render(fmt.Sprintf("Nothing to archive — %d VERIFIED ticket(s), keep=%d.", len(verified), keep), toast.Success, m.width)
+				m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
+				return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
+			}
+			m.pendingArchive = verified[keep:]
+			confirmContent := renderConfirmModal(len(m.pendingArchive), keep)
+			m.modals = m.modals.Show(modal.KindConfirm, confirmContent, m.width)
 
 		// Column navigation: left/right arrows OR h/l vim keys.
 		case isColNav(msg) && !m.search.IsActive() && !m.modals.HasActive():
@@ -282,8 +368,46 @@ func (m RootModel) View() string {
 		boardView = modal.Overlay(content, m.width, contentHeight)
 	}
 
-	footerView := m.ftr.SetWidth(m.width).View()
+	footerView := m.ftr.SetWidth(m.width).SetSessionCounts(m.sessionCounts).View()
 	return headerView + "\n" + boardView + "\n" + footerView
+}
+
+// archiveKeep returns the configured keep count, defaulting to 10 when zero or cfg is nil.
+func archiveKeep(cfg *config.ProjectConfig) int {
+	if cfg != nil && cfg.ArchiveKeep > 0 {
+		return cfg.ArchiveKeep
+	}
+	return 10
+}
+
+// renderConfirmModal returns a pre-rendered confirmation dialog string.
+func renderConfirmModal(toArchive, keep int) string {
+	return fmt.Sprintf(
+		"  Archive %d ticket(s)?  Keep %d most recent.\n\n  [y] confirm    [n/esc] cancel",
+		toArchive, keep,
+	)
+}
+
+// bulkArchiveCmd returns a tea.Cmd that sequentially archives tickets in a single
+// goroutine. NOT a fan-out — each ticket is processed after the previous completes.
+func bulkArchiveCmd(db *sql.DB, root string, tickets []models.Ticket) tea.Cmd {
+	return func() tea.Msg {
+		sess, err := session.LoadActive(root, db)
+		if err != nil {
+			return bulkArchiveDoneMsg{err: fmt.Errorf("bulk archive: load session: %w", err)}
+		}
+		archived := 0
+		var failed []string
+		for _, t := range tickets {
+			id := strconv.FormatInt(t.ID, 10)
+			if err := state.Execute(id, models.StatusArchived, "archived", sess, db, false); err != nil {
+				failed = append(failed, id)
+				continue
+			}
+			archived++
+		}
+		return bulkArchiveDoneMsg{archived: archived, failed: failed}
+	}
 }
 
 // footerCtx derives the appropriate footer.Context from current model state.

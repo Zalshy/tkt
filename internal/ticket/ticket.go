@@ -21,9 +21,12 @@ type ListOptions struct {
 	Limit           int            // 0 = use default (10)
 	All             bool           // true = no LIMIT clause; also disables soft-delete filter
 	IncludeVerified bool
+	IncludeArchived bool           // true = include ARCHIVED tickets in results
 	ExcludeCanceled bool
 	Sort            string // "updated" (default) or "id"
 	Ready           bool   // true = only tickets with no unresolved dependencies
+	Query           string // non-empty: LIKE '%query%' on title+description (or title only)
+	TitleOnly       bool   // true: restrict query match to title only
 }
 
 // ListResult wraps the returned ticket slice with a pagination hint.
@@ -110,6 +113,12 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 		where = append(where, "t.status != 'VERIFIED'")
 	}
 
+	// ARCHIVED is hidden unconditionally unless explicitly requested.
+	// This applies even when opts.Status != nil, opts.All==true, or opts.IncludeVerified==true.
+	if !opts.IncludeArchived {
+		where = append(where, "t.status != 'ARCHIVED'")
+	}
+
 	if opts.ExcludeCanceled {
 		where = append(where, "t.status != 'CANCELED'")
 	}
@@ -125,10 +134,22 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
     )`)
 	}
 
+	if opts.Query != "" {
+		q := "%" + opts.Query + "%"
+		if opts.TitleOnly {
+			where = append(where, "t.title LIKE ?")
+			args = append(args, q)
+		} else {
+			where = append(where, "(t.title LIKE ? OR t.description LIKE ?)")
+			args = append(args, q, q)
+		}
+	}
+
 	// SECURITY: dynamic query assembly is safe — no user input reaches the SQL string.
 	// - WHERE fragments appended above ("t.deleted_at IS NULL", "t.status = ?",
 	//   "t.status != 'VERIFIED'", "t.status != 'CANCELED'", the NOT EXISTS subquery)
 	//   are hardcoded string literals; never derived from user input.
+	// - LIKE pattern values (opts.Query) are passed via ? placeholders, never interpolated.
 	// - Hardcoded status literals in WHERE ('VERIFIED', 'CANCELED') are safe constants.
 	// - ORDER BY is chosen from two hardcoded literals ("t.updated_at DESC",
 	//   "t.id DESC") via the `opts.Sort == "id"` guard; user input cannot inject
@@ -361,7 +382,7 @@ type DependencyEdge struct {
 func ListActive(db *sql.DB) (map[int64]models.Status, error) {
 	rows, err := db.Query(`
 		SELECT id, status FROM tickets
-		WHERE status NOT IN ('VERIFIED', 'CANCELED')
+		WHERE status NOT IN ('VERIFIED', 'CANCELED', 'ARCHIVED')
 		  AND deleted_at IS NULL
 		ORDER BY id
 	`)
