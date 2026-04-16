@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "tkt": {
+      "command": "tkt",
+      "args": ["mcp"]
+    }
+  }
+}
