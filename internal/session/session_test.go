@@ -379,3 +379,91 @@ func TestCreate_UnregisteredRole_Error(t *testing.T) {
 		t.Errorf("error = %q, want it to mention %q or %q", err.Error(), "phantom", "not registered")
 	}
 }
+
+// ---------------------------------------------------------------------------
+// CreateSystem tests
+// ---------------------------------------------------------------------------
+
+// TestCreateSystem_InsertsRowNoFile verifies that CreateSystem inserts a DB row,
+// does NOT write a session file, and populates EffectiveRole correctly.
+func TestCreateSystem_InsertsRowNoFile(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	s, err := CreateSystem(models.RoleMonitor, sqlDB)
+	if err != nil {
+		t.Fatalf("CreateSystem: %v", err)
+	}
+
+	// Row must exist in sessions table.
+	var count int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, s.ID).Scan(&count); err != nil {
+		t.Fatalf("query session row: %v", err)
+	}
+	if count != 1 {
+		t.Errorf("sessions row count = %d, want 1", count)
+	}
+
+	// Session file must NOT exist.
+	sessionFilePath := project.SessionFile(root)
+	if _, statErr := os.Stat(sessionFilePath); statErr == nil {
+		t.Error("session file was written — CreateSystem must not write session file")
+	}
+
+	// EffectiveRole must be RoleMonitor (resolved via ResolveBase).
+	if s.EffectiveRole != models.RoleMonitor {
+		t.Errorf("EffectiveRole = %q, want %q", s.EffectiveRole, models.RoleMonitor)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ExpireByID tests
+// ---------------------------------------------------------------------------
+
+// TestExpireByID_SetsExpiredAt verifies that ExpireByID sets expired_at on the row.
+func TestExpireByID_SetsExpiredAt(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	// Insert a session row directly.
+	const sessID = "expire-test-session"
+	if _, err := sqlDB.Exec(
+		`INSERT INTO sessions (id, role, name) VALUES (?, 'monitor', 'test')`, sessID,
+	); err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
+
+	if err := ExpireByID(sessID, sqlDB); err != nil {
+		t.Fatalf("ExpireByID: %v", err)
+	}
+
+	var expiredAt *string
+	if err := sqlDB.QueryRow(`SELECT expired_at FROM sessions WHERE id = ?`, sessID).Scan(&expiredAt); err != nil {
+		t.Fatalf("query expired_at: %v", err)
+	}
+	if expiredAt == nil {
+		t.Error("expired_at is NULL after ExpireByID — want it set")
+	}
+}
+
+// TestExpireByID_NoRowIdempotent verifies that ExpireByID with an unknown ID returns no error.
+func TestExpireByID_NoRowIdempotent(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	if err := ExpireByID("nonexistent-id", sqlDB); err != nil {
+		t.Errorf("ExpireByID with unknown ID: got error %v, want nil", err)
+	}
+}

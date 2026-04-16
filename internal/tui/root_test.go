@@ -14,7 +14,7 @@ import (
 
 // TestRootModel_WindowSize verifies that a WindowSizeMsg updates width and height.
 func TestRootModel_WindowSize(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -31,7 +31,7 @@ func TestRootModel_WindowSize(t *testing.T) {
 // TestRootModel_SizeGuard_Triggers verifies that a terminal smaller than 60×20
 // renders the size-guard error message.
 func TestRootModel_SizeGuard_Triggers(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m.width = 59
 	m.height = 20
 	view := testutil.StripANSI(m.View())
@@ -43,7 +43,7 @@ func TestRootModel_SizeGuard_Triggers(t *testing.T) {
 // TestRootModel_SizeGuard_ExactThreshold verifies that a terminal of exactly
 // 60×20 renders normal output (not the size-guard error).
 func TestRootModel_SizeGuard_ExactThreshold(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m.width = 60
 	m.height = 20
 	view := testutil.StripANSI(m.View())
@@ -54,7 +54,7 @@ func TestRootModel_SizeGuard_ExactThreshold(t *testing.T) {
 
 // TestBoard_ColumnSwitch verifies that left/right keys move the active column.
 func TestBoard_ColumnSwitch(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -92,7 +92,7 @@ func TestBoard_ColumnSwitch(t *testing.T) {
 // TestRootModel_WindowSizeUpdatesBoard verifies that a WindowSizeMsg propagates
 // to the board component and the board produces non-empty output.
 func TestRootModel_WindowSizeUpdatesBoard(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -108,7 +108,7 @@ func TestRootModel_WindowSizeUpdatesBoard(t *testing.T) {
 // TestRootModel_SearchOpenClose verifies that '/' opens the search overlay and
 // Esc closes it.
 func TestRootModel_SearchOpenClose(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -141,7 +141,7 @@ func TestRootModel_SearchOpenClose(t *testing.T) {
 // is selected in the active board column causes a non-nil cmd to be returned.
 // The cmd is NOT invoked — it would panic with a nil db.
 func TestRootModel_EnterFiresDetailLoad(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -170,7 +170,7 @@ func TestRootModel_EnterFiresDetailLoad(t *testing.T) {
 // TestRootModel_HelpModalOpenClose verifies that '?' opens the help modal and
 // Esc closes it.
 func TestRootModel_HelpModalOpenClose(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -205,7 +205,7 @@ func TestRootModel_HelpModalOpenClose(t *testing.T) {
 // TestRootModel_HelpModalEscPriority verifies that when the help modal is open,
 // Esc dismisses the modal rather than closing the search overlay.
 func TestRootModel_HelpModalEscPriority(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -244,7 +244,7 @@ func TestRootModel_HelpModalEscPriority(t *testing.T) {
 // TestRootModel_ToastExpiredDismisses verifies that ToastExpiredMsg causes an
 // active toast modal to be dismissed.
 func TestRootModel_ToastExpiredDismisses(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -271,7 +271,7 @@ func TestRootModel_ToastExpiredDismisses(t *testing.T) {
 // TestRootModel_NavJK_ForwardedToBoard verifies that 'j' and 'k' move the board
 // cursor when search is inactive and no modal is open.
 func TestRootModel_NavJK_ForwardedToBoard(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -320,7 +320,7 @@ func TestRootModel_NavJK_ForwardedToBoard(t *testing.T) {
 // TestRootModel_NavJK_NotForwardedWhenSearchActive verifies that 'j' does NOT
 // move the board cursor while the search overlay is open.
 func TestRootModel_NavJK_NotForwardedWhenSearchActive(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {

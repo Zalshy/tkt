@@ -155,6 +155,71 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 	return &s, nil
 }
 
+// CreateSystem inserts a session row for a built-in system role (e.g. monitor)
+// WITHOUT writing to the .tkt/session file. Used by tkt monitor to own its
+// own session without displacing any user session.
+// Collision retry strategy mirrors Create.
+func CreateSystem(role models.Role, db *sql.DB) (*models.Session, error) {
+	// Validate the role is registered before inserting.
+	exists, err := rolepkg.Exists(string(role), db)
+	if err != nil {
+		return nil, fmt.Errorf("CreateSystem: check role: %w", err)
+	}
+	if !exists {
+		return nil, fmt.Errorf("CreateSystem: role %q is not registered", role)
+	}
+
+	base, err := rolepkg.ResolveBase(string(role), db)
+	if err != nil {
+		return nil, fmt.Errorf("CreateSystem: resolve base role: %w", err)
+	}
+
+	s := models.Session{
+		Role:          role,
+		EffectiveRole: base,
+	}
+
+	id := GenerateID("")
+	var insertErr error
+	for i := 0; i < maxRetries; i++ {
+		s.ID = id
+		s.Name = id
+		insertErr = insertSession(db, &s)
+		if insertErr == nil {
+			break
+		}
+		if !isPKConstraintError(insertErr) {
+			return nil, fmt.Errorf("CreateSystem: %w", insertErr)
+		}
+		id = GenerateID("")
+	}
+
+	if insertErr != nil {
+		if !isPKConstraintError(insertErr) {
+			return nil, fmt.Errorf("CreateSystem: %w", insertErr)
+		}
+		id = GenerateID("") + "-" + randomHex4()
+		s.ID = id
+		s.Name = id
+		if err := insertSession(db, &s); err != nil {
+			return nil, fmt.Errorf("CreateSystem: %w", err)
+		}
+	}
+
+	// Deliberately does NOT write a session file — system session is DB-only.
+	return &s, nil
+}
+
+// ExpireByID sets expired_at = datetime('now') for the session with the given ID.
+// Returns nil if no row matched (idempotent).
+func ExpireByID(id string, db *sql.DB) error {
+	_, err := db.Exec(`UPDATE sessions SET expired_at = datetime('now') WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("ExpireByID: %w", err)
+	}
+	return nil
+}
+
 // isPKConstraintError reports whether err is a SQLite PRIMARY KEY / UNIQUE constraint violation.
 func isPKConstraintError(err error) bool {
 	if err == nil {

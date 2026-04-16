@@ -56,6 +56,11 @@ func runSession(cmd *cobra.Command, args []string) error {
 
 // runSessionCreate handles `tkt session --role <role> [--name <name>]`.
 func runSessionCreate(cmd *cobra.Command) error {
+	// Block system-only roles from user-created sessions.
+	if sessionRole == string(models.RoleMonitor) {
+		return fmt.Errorf("monitor is a system-only role and cannot be used with tkt session")
+	}
+
 	// Validate --name before opening the DB.
 	if sessionName != "" {
 		if err := session.ValidateName(sessionName); err != nil {

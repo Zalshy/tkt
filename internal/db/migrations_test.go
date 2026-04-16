@@ -44,8 +44,8 @@ func TestMigration_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 5 {
-		t.Errorf("schema_version = %d, want 5", version)
+	if version != 6 {
+		t.Errorf("schema_version = %d, want 6", version)
 	}
 }
 
@@ -75,8 +75,8 @@ func TestMigration_V2ToV3(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 5 {
-		t.Errorf("schema_version = %d, want 5", version)
+	if version != 6 {
+		t.Errorf("schema_version = %d, want 6", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -103,8 +103,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 5 {
-		t.Errorf("schema_version after first Open = %d, want 5", v1)
+	if v1 != 6 {
+		t.Errorf("schema_version after first Open = %d, want 6", v1)
 	}
 	db1.Close()
 
@@ -118,8 +118,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 5 {
-		t.Errorf("schema_version after second Open = %d, want 5", v2)
+	if v2 != 6 {
+		t.Errorf("schema_version after second Open = %d, want 6", v2)
 	}
 }
 
@@ -133,17 +133,17 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 5 {
-		t.Errorf("schema_version = %d, want 5", version)
+	if version != 6 {
+		t.Errorf("schema_version = %d, want 6", version)
 	}
 
-	// Assert exactly 2 rows in roles.
+	// Assert exactly 3 rows in roles (architect, implementer, monitor).
 	var count int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM roles`).Scan(&count); err != nil {
 		t.Fatalf("COUNT roles: %v", err)
 	}
-	if count != 2 {
-		t.Errorf("roles COUNT = %d, want 2", count)
+	if count != 3 {
+		t.Errorf("roles COUNT = %d, want 3", count)
 	}
 
 	// Assert architect row.
@@ -172,6 +172,19 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	}
 	if isBuiltin != 1 {
 		t.Errorf("implementer is_builtin = %d, want 1", isBuiltin)
+	}
+
+	// Assert monitor row (added by V6).
+	if err := database.QueryRow(
+		`SELECT base_role, is_builtin FROM roles WHERE name='monitor'`,
+	).Scan(&baseRole, &isBuiltin); err != nil {
+		t.Fatalf("SELECT monitor row: %v", err)
+	}
+	if baseRole != "monitor" {
+		t.Errorf("monitor base_role = %q, want %q", baseRole, "monitor")
+	}
+	if isBuiltin != 1 {
+		t.Errorf("monitor is_builtin = %d, want 1", isBuiltin)
 	}
 }
 

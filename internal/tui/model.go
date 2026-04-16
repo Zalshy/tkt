@@ -51,6 +51,7 @@ type RootModel struct {
 	db    *sql.DB
 	cfg   *config.ProjectConfig
 	root  string
+	sess  *models.Session
 	width int
 	height int
 
@@ -85,7 +86,7 @@ type RootModel struct {
 // The header is initialised here (not in Init) because Init uses a value
 // receiver — any assignments inside Init are silently discarded.
 // No I/O is performed.
-func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
+func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string, sess *models.Session) RootModel {
 	var interval time.Duration
 	if cfg != nil {
 		interval = time.Duration(cfg.MonitorInterval) * time.Second
@@ -97,6 +98,7 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 		db:           db,
 		cfg:          cfg,
 		root:         root,
+		sess:         sess,
 		hdr:          header.New(0, 0),
 		board:        kanban.New(0, 0),
 		detail:       ticketdetail.New(0, 0, false),
@@ -174,10 +176,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
 		}
 		m.allTickets = msg.Tickets
-		if counts, err := session.CountActive(m.db); err == nil {
-			m.sessionCounts = footer.SessionCounts{
-				Arch: counts[models.RoleArchitect],
-				Impl: counts[models.RoleImplementer],
+		if m.db != nil {
+			if counts, err := session.CountActive(m.db); err == nil {
+				m.sessionCounts = footer.SessionCounts{
+					Arch: counts[models.RoleArchitect],
+					Impl: counts[models.RoleImplementer],
+				}
 			}
 		}
 		if m.search.IsActive() {
@@ -239,7 +243,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y", "enter":
 				m.modals = m.modals.Dismiss(modal.KindConfirm)
 				if len(m.pendingArchive) > 0 {
-					return m, bulkArchiveCmd(m.db, m.root, m.pendingArchive)
+					return m, bulkArchiveCmd(m.db, m.sess, m.pendingArchive)
 				}
 			default:
 				// n, N, esc, or any other key cancels
@@ -390,12 +394,8 @@ func renderConfirmModal(toArchive, keep int) string {
 
 // bulkArchiveCmd returns a tea.Cmd that sequentially archives tickets in a single
 // goroutine. NOT a fan-out — each ticket is processed after the previous completes.
-func bulkArchiveCmd(db *sql.DB, root string, tickets []models.Ticket) tea.Cmd {
+func bulkArchiveCmd(db *sql.DB, sess *models.Session, tickets []models.Ticket) tea.Cmd {
 	return func() tea.Msg {
-		sess, err := session.LoadActive(root, db)
-		if err != nil {
-			return bulkArchiveDoneMsg{err: fmt.Errorf("bulk archive: load session: %w", err)}
-		}
 		archived := 0
 		var failed []string
 		for _, t := range tickets {

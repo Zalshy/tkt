@@ -101,6 +101,21 @@ func TestCreate_BuiltInGuard(t *testing.T) {
 	}
 }
 
+// TestCreate_MonitorBuiltInGuard verifies that attempting to create a role named "monitor" returns ErrBuiltIn.
+func TestCreate_MonitorBuiltInGuard(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Note: baseRole "architect" used because the baseRole validation rejects "monitor"
+	// before the built-in guard fires — we want to test the built-in guard specifically.
+	err := Create("monitor", "architect", db)
+	if err == nil {
+		t.Fatal("Create monitor: expected error, got nil")
+	}
+	if !errors.Is(err, ErrBuiltIn) {
+		t.Errorf("Create monitor: got %v, want to wrap ErrBuiltIn", err)
+	}
+}
+
 // TestDelete_NotFound verifies that deleting a non-existent role returns ErrNotFound.
 func TestDelete_NotFound(t *testing.T) {
 	db := setupTestDB(t)

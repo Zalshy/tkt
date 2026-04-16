@@ -59,7 +59,7 @@ func Create(name, baseRole string, db *sql.DB) error {
 	if baseRole != "architect" && baseRole != "implementer" {
 		return fmt.Errorf("role.Create: baseRole must be \"architect\" or \"implementer\"")
 	}
-	if name == "architect" || name == "implementer" {
+	if name == "architect" || name == "implementer" || name == "monitor" {
 		return fmt.Errorf("role.Create: %w", ErrBuiltIn)
 	}
 	exists, err := Exists(name, db)

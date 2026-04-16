@@ -448,5 +448,23 @@ func RemoveDependency(ticketID, depID int64, db *sql.DB) error {
 	return nil
 }
 
+// SetTier updates the tier of an existing ticket. Returns ErrNotFound if the
+// ticket does not exist or has been soft-deleted.
+func SetTier(id string, newTier string, db *sql.DB) (*models.Ticket, error) {
+	t, err := GetByID(id, db)
+	if err != nil {
+		return nil, err
+	}
+
+	if _, err := db.Exec(
+		`UPDATE tickets SET tier = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+		newTier, t.ID,
+	); err != nil {
+		return nil, fmt.Errorf("ticket.SetTier: update: %w", err)
+	}
+
+	return GetByID(id, db)
+}
+
 // ptr returns a pointer to a time.Time value (helper for nullable scan).
 func ptr(t time.Time) *time.Time { return &t }

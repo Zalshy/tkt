@@ -109,6 +109,23 @@ CREATE INDEX idx_project_context_deleted_at ON project_context(deleted_at)`,
 	{
 		`ALTER TABLE tickets ADD COLUMN tier TEXT NOT NULL DEFAULT 'standard'`,
 	},
+	// V6 — seed monitor built-in role (system-only, not architect or implementer).
+	// The roles table has CHECK (base_role IN ('architect', 'implementer')) which
+	// must be widened to allow 'monitor'. SQLite cannot drop/alter CHECK constraints
+	// in-place, so we recreate the table via the standard rename-copy-drop sequence.
+	{
+		`CREATE TABLE roles_new (
+			name       TEXT PRIMARY KEY,
+			base_role  TEXT NOT NULL,
+			is_builtin INTEGER NOT NULL DEFAULT 0,
+			created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+			CHECK (base_role IN ('architect', 'implementer', 'monitor'))
+		)`,
+		`INSERT INTO roles_new SELECT name, base_role, is_builtin, created_at FROM roles`,
+		`DROP TABLE roles`,
+		`ALTER TABLE roles_new RENAME TO roles`,
+		`INSERT INTO roles (name, base_role, is_builtin) VALUES ('monitor', 'monitor', 1)`,
+	},
 }
 
 // migrate ensures the schema_version table exists, then applies any
