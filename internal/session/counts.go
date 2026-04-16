@@ -16,6 +16,7 @@ func CountActive(db *sql.DB) (map[models.Role]int, error) {
 		FROM sessions s
 		JOIN roles r ON r.name = s.role
 		WHERE s.expired_at IS NULL
+			AND r.base_role != 'monitor'
 		GROUP BY r.base_role
 	`)
 	if err != nil {

@@ -11,6 +11,8 @@ import (
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/project"
 	rolepkg "github.com/zalshy/tkt/internal/role"
+	sqlite3 "modernc.org/sqlite"
+	sqlite3lib "modernc.org/sqlite/lib"
 )
 
 // ErrNoSession is returned by LoadActive when the .tkt/session file is absent.
@@ -65,7 +67,7 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 	if expiredAt.Valid {
 		t := expiredAt.Time
 		s.ExpiredAt = &t
-		return nil, ErrExpiredSession
+		return &s, ErrExpiredSession
 	}
 
 	if err := updateLastActive(db, id); err != nil {
@@ -136,7 +138,11 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 		if !isPKConstraintError(insertErr) {
 			return nil, fmt.Errorf("Create: %w", insertErr)
 		}
-		id = GenerateID("") + "-" + randomHex4()
+		hex4, err := randomHex4()
+		if err != nil {
+			return nil, fmt.Errorf("Create: %w", err)
+		}
+		id = GenerateID("") + "-" + hex4
 		s.ID = id
 		s.Name = id
 		if err := insertSession(db, &s); err != nil {
@@ -148,7 +154,8 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 	// LoadActive applies TrimSpace on read, but we intentionally write no trailing bytes.
 	sessionFile := project.SessionFile(root)
 	if err := os.WriteFile(sessionFile, []byte(id), 0o644); err != nil {
-		// The DB row was already inserted — this orphan row is acceptable; tkt cleanup handles it.
+		// Best-effort cleanup — delete the DB row we just inserted.
+		_, _ = db.Exec(`DELETE FROM sessions WHERE id = ?`, s.ID)
 		return nil, fmt.Errorf("Create: write session file: %w", err)
 	}
 
@@ -198,7 +205,11 @@ func CreateSystem(role models.Role, db *sql.DB) (*models.Session, error) {
 		if !isPKConstraintError(insertErr) {
 			return nil, fmt.Errorf("CreateSystem: %w", insertErr)
 		}
-		id = GenerateID("") + "-" + randomHex4()
+		hex4, err := randomHex4()
+		if err != nil {
+			return nil, fmt.Errorf("CreateSystem: %w", err)
+		}
+		id = GenerateID("") + "-" + hex4
 		s.ID = id
 		s.Name = id
 		if err := insertSession(db, &s); err != nil {
@@ -225,7 +236,9 @@ func isPKConstraintError(err error) bool {
 	if err == nil {
 		return false
 	}
-	msg := err.Error()
-	return strings.Contains(msg, "UNIQUE constraint failed") ||
-		strings.Contains(msg, "PRIMARY KEY constraint failed")
+	var sqliteErr *sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		return sqliteErr.Code() == sqlite3lib.SQLITE_CONSTRAINT
+	}
+	return false
 }

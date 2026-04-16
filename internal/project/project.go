@@ -26,11 +26,6 @@ func FindRoot() (string, error) {
 	}
 }
 
-// TicketsDir returns the path to the .tkt directory inside root.
-func TicketsDir(root string) string {
-	return filepath.Join(root, ".tkt")
-}
-
 // SessionFile returns the path to the session file inside root.
 func SessionFile(root string) string {
 	return filepath.Join(root, ".tkt", "session")

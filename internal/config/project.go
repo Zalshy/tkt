@@ -14,7 +14,7 @@ type ProjectConfig struct {
 	CreatedAt string `json:"created_at"` // RFC3339 string; formatted by the caller
 
 	// MonitorInterval is the TUI poll interval in seconds.
-	// A value of 0 means "use the default" (2 seconds). Set by tkt init.
+	// A value of 0 means "use the default" (5 seconds). Set by tkt init.
 	MonitorInterval int `json:"monitor_interval"`
 
 	// ArchiveKeep is the number of most-recent VERIFIED tickets to keep when

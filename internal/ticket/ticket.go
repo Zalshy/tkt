@@ -113,9 +113,9 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 		where = append(where, "t.status != 'VERIFIED'")
 	}
 
-	// ARCHIVED is hidden unconditionally unless explicitly requested.
-	// This applies even when opts.Status != nil, opts.All==true, or opts.IncludeVerified==true.
-	if !opts.IncludeArchived {
+	// ARCHIVED is hidden unconditionally unless explicitly requested via IncludeArchived
+	// or by filtering directly on StatusArchived.
+	if !opts.IncludeArchived && (opts.Status == nil || *opts.Status != models.StatusArchived) {
 		where = append(where, "t.status != 'ARCHIVED'")
 	}
 
@@ -230,6 +230,7 @@ WITH RECURSIVE upstream(id, depth) AS (
     SELECT td.depends_on, u.depth + 1
     FROM ticket_dependencies td
     JOIN upstream u ON td.ticket_id = u.id
+    WHERE u.depth < 1000
 )
 SELECT DISTINCT t.id, t.title, t.status, u.depth
 FROM upstream u
@@ -272,6 +273,7 @@ WITH RECURSIVE downstream(id, depth) AS (
     SELECT td.ticket_id, d.depth + 1
     FROM ticket_dependencies td
     JOIN downstream d ON td.depends_on = d.id
+    WHERE d.depth < 1000
 )
 SELECT DISTINCT t.id, t.title, t.status, d.depth
 FROM downstream d
@@ -335,25 +337,43 @@ func AddDependencies(ticketID int64, depIDs []int64, db *sql.DB) error {
 		}
 	}
 
-	downstream, err := GetDependents(ticketID, db)
+	tx, err := db.Begin()
+	if err != nil {
+		return fmt.Errorf("ticket.AddDependencies: begin tx: %w", err)
+	}
+	defer tx.Rollback() // no-op after successful Commit; covers all error paths
+
+	// Cycle check inside the transaction — atomic with the INSERTs under SQLite write serialization.
+	// Traverses upward: finds all tickets that (transitively) depend ON ticketID.
+	// If any depID is in that set, adding ticketID→depID would create a cycle.
+	rows, err := tx.Query(`
+    WITH RECURSIVE downstream(id, depth) AS (
+        SELECT ticket_id, 1 FROM ticket_dependencies WHERE depends_on = ?
+        UNION ALL
+        SELECT td.ticket_id, d.depth + 1 FROM ticket_dependencies td JOIN downstream d ON td.depends_on = d.id WHERE d.depth < 1000
+    )
+    SELECT id FROM downstream`, ticketID)
 	if err != nil {
 		return fmt.Errorf("ticket.AddDependencies: cycle check: %w", err)
 	}
-	downstreamSet := make(map[int64]bool, len(downstream))
-	for _, d := range downstream {
-		downstreamSet[d.ID] = true
+	downstreamSet := make(map[int64]bool)
+	for rows.Next() {
+		var id int64
+		if err := rows.Scan(&id); err != nil {
+			rows.Close()
+			return fmt.Errorf("ticket.AddDependencies: cycle check scan: %w", err)
+		}
+		downstreamSet[id] = true
+	}
+	rows.Close()
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("ticket.AddDependencies: cycle check rows: %w", err)
 	}
 	for _, depID := range depIDs {
 		if downstreamSet[depID] {
 			return fmt.Errorf("cycle detected — #%d is already downstream of #%d", ticketID, depID)
 		}
 	}
-
-	tx, err := db.Begin()
-	if err != nil {
-		return fmt.Errorf("ticket.AddDependencies: begin tx: %w", err)
-	}
-	defer tx.Rollback() // no-op after successful Commit; covers all error paths
 
 	for _, depID := range depIDs {
 		if _, err := tx.Exec(
@@ -437,13 +457,18 @@ func ListDependencyEdges(db *sql.DB) ([]DependencyEdge, error) {
 }
 
 // RemoveDependency deletes the dependency edge from ticketID to depID.
-// Idempotent: returns nil when the edge does not exist.
+// Returns ErrNotFound when the edge does not exist.
 func RemoveDependency(ticketID, depID int64, db *sql.DB) error {
-	if _, err := db.Exec(
+	result, err := db.Exec(
 		`DELETE FROM ticket_dependencies WHERE ticket_id = ? AND depends_on = ?`,
 		ticketID, depID,
-	); err != nil {
+	)
+	if err != nil {
 		return fmt.Errorf("ticket.RemoveDependency: %w", err)
+	}
+	n, _ := result.RowsAffected()
+	if n == 0 {
+		return fmt.Errorf("%w: dependency #%d → #%d not found", ErrNotFound, ticketID, depID)
 	}
 	return nil
 }

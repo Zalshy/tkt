@@ -15,6 +15,11 @@ import (
 //
 // When hasMore is true, a hint line is appended. total is the remaining count;
 // when total <= 0 the hint line omits the count (the caller may not have it).
+//
+// Rows are plain-text with no ANSI coloring. Callers that want per-row status
+// color must apply StatusColor themselves before or after calling this function.
+//
+// The returned string has no trailing newline.
 func RenderList(tickets []models.Ticket, hasMore bool, total int) string {
 	if len(tickets) == 0 {
 		return "(no tickets)"

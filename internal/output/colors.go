@@ -36,6 +36,8 @@ func StatusColor(s models.Status) string {
 		return Green
 	case models.StatusCanceled:
 		return Red
+	case models.StatusArchived:
+		return Dim
 	default:
 		return Reset
 	}
@@ -48,6 +50,8 @@ func RoleColor(r models.Role) string {
 		return Purple
 	case models.RoleImplementer:
 		return Cyan
+	case models.RoleMonitor:
+		return Gray
 	default:
 		return Reset
 	}

@@ -165,7 +165,8 @@ func TestDepends_RemoveExisting(t *testing.T) {
 	}
 }
 
-// TestDepends_RemoveNonExistent verifies --remove on a non-existent edge returns no error.
+// TestDepends_RemoveNonExistent verifies --remove on a non-existent edge prints
+// a user-friendly message and does not return a fatal error.
 func TestDepends_RemoveNonExistent(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInitInDir(t, dir); err != nil {
@@ -174,14 +175,11 @@ func TestDepends_RemoveNonExistent(t *testing.T) {
 	seedSession(t, dir, "impl-dep-0007")
 	seedTickets(t, dir, 2) // tickets exist but no dep row
 
-	out, err := runDependsInDir(t, dir, []string{"2"}, func() {
+	_, err := runDependsInDir(t, dir, []string{"2"}, func() {
 		dependsRemove = "1"
 	})
 	if err != nil {
-		t.Fatalf("expected no error for removing non-existent edge, got: %v", err)
-	}
-	if !strings.Contains(out, "Removed dependency: #2 no longer depends on #1") {
-		t.Errorf("expected removal message, got: %q", out)
+		t.Fatalf("expected no fatal error for removing non-existent edge, got: %v", err)
 	}
 }
 

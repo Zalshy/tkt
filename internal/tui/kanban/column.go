@@ -94,7 +94,10 @@ func cardHeight(t models.Ticket) int {
 }
 
 func (c Column) visibleCards() int {
-	// column header (2 lines: label + divider) + border (2 lines: top + bottom)
+	// c.height is the full allocated height including the outer border.
+	// The border style consumes 2 rows (top + bottom), and the column header
+	// and its separator divider each consume 1 row (2 rows total), so the
+	// usable inner content height is c.height - 4.
 	innerH := c.height - 4
 	if innerH < 0 {
 		innerH = 0

@@ -114,7 +114,13 @@ func (m Model) Filter(tickets []models.Ticket) []models.Ticket {
 		return []models.Ticket{}
 	}
 
-	// Sort matched results by their original index so output order matches input order.
+	// Sort by original insertion index, not by fuzzy match score.
+	// Insertion order equals board display order (top-to-bottom across columns),
+	// so filtered results appear in the same sequence as the board — making it
+	// easy to predict where a matched ticket sits. Relevance scoring is
+	// deliberately not used: stable ordering is more useful than ranking in a
+	// small, fixed list where the user already knows roughly what they are
+	// looking for.
 	sort.Slice(matches, func(i, j int) bool {
 		return matches[i].Index < matches[j].Index
 	})

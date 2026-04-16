@@ -55,6 +55,30 @@ func NextDocID(root string) (string, error) {
 			max = n
 		}
 	}
+	archivedEntries, err := os.ReadDir(DocsArchivedDir(root))
+	if err != nil && !os.IsNotExist(err) {
+		return "", fmt.Errorf("NextDocID: read archived dir: %w", err)
+	}
+	for _, e := range archivedEntries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		m := numPrefixRe.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+		n, err := strconv.Atoi(m[1])
+		if err != nil {
+			continue
+		}
+		if n > max {
+			max = n
+		}
+	}
 	return fmt.Sprintf("%03d", max+1), nil
 }
 
@@ -131,6 +155,10 @@ func ParseDocMeta(path string) (DocMeta, error) {
 		}
 	}
 
+	if err := scanner.Err(); err != nil {
+		return meta, fmt.Errorf("ParseDocMeta: scan: %w", err)
+	}
+
 	return meta, nil
 }
 
@@ -189,6 +217,40 @@ func ResolveDoc(root, query string) (string, error) {
 			slug := strings.TrimSuffix(after, ".md")
 			if strings.Contains(slug, query) {
 				matches = append(matches, filepath.Join(DocsDir(root), name))
+			}
+		}
+	}
+
+	archivedEntries, err2 := os.ReadDir(DocsArchivedDir(root))
+	if err2 != nil && !os.IsNotExist(err2) {
+		return "", fmt.Errorf("ResolveDoc: read archived dir: %w", err2)
+	}
+	for _, e := range archivedEntries {
+		if e.IsDir() {
+			continue
+		}
+		name := e.Name()
+		if !strings.HasSuffix(name, ".md") {
+			continue
+		}
+		m := numPrefixRe.FindStringSubmatch(name)
+		if m == nil {
+			continue
+		}
+
+		if isID {
+			n, err := strconv.Atoi(m[1])
+			if err != nil {
+				continue
+			}
+			if n == queryN {
+				matches = append(matches, filepath.Join(DocsArchivedDir(root), name))
+			}
+		} else {
+			after := strings.TrimPrefix(name, m[0])
+			slug := strings.TrimSuffix(after, ".md")
+			if strings.Contains(slug, query) {
+				matches = append(matches, filepath.Join(DocsArchivedDir(root), name))
 			}
 		}
 	}

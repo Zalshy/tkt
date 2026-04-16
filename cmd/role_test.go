@@ -225,7 +225,8 @@ func TestRoleDelete_BuiltIn(t *testing.T) {
 	}
 }
 
-// TestRoleDelete_InUse verifies that deleting a role with an active session returns "in use".
+// TestRoleDelete_InUse verifies that deleting a role with an active session succeeds
+// by expiring those sessions first (no longer blocked by ErrInUse).
 func TestRoleDelete_InUse(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInitInDir(t, dir); err != nil {
@@ -251,12 +252,10 @@ func TestRoleDelete_InUse(t *testing.T) {
 		t.Fatalf("insert session: %v", err)
 	}
 
+	// Delete should now succeed — active sessions are expired automatically.
 	_, err = runRoleDeleteInDir(t, dir, "ops")
-	if err == nil {
-		t.Fatal("expected error for in-use role, got nil")
-	}
-	if !strings.Contains(err.Error(), "in use") {
-		t.Errorf("expected 'in use' in error, got: %v", err)
+	if err != nil {
+		t.Fatalf("expected delete to succeed, got: %v", err)
 	}
 }
 

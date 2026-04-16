@@ -51,14 +51,3 @@ func requireRoot() (string, error) {
 	return root, nil
 }
 
-// stubCmd returns a minimal cobra.Command that prints "not yet implemented".
-// Replaced in-place once the real command file is added.
-func stubCmd(use, short string) *cobra.Command {
-	return &cobra.Command{
-		Use:   use,
-		Short: short,
-		RunE: func(cmd *cobra.Command, args []string) error {
-			return fmt.Errorf("%s: not yet implemented", use)
-		},
-	}
-}

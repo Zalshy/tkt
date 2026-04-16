@@ -26,7 +26,11 @@ func RenderContext(c models.Context) string {
 }
 
 // RenderContextList renders all context entries followed by a count footer.
+// When entries is empty, returns "(no context entries)\n" immediately — no footer.
 func RenderContextList(entries []models.Context) string {
+	if len(entries) == 0 {
+		return "(no context entries)\n"
+	}
 	var b strings.Builder
 	for _, c := range entries {
 		b.WriteString(RenderContext(c))

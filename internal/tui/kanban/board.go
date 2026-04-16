@@ -14,6 +14,9 @@ import (
 type TickMsg struct{}
 
 // TickCmd returns a tea.Cmd that fires after 32ms sending a TickMsg.
+// The self-scheduling loop (each TickMsg handler calls TickCmd again) has no
+// explicit off-switch. This is the standard BubbleTea tick pattern: the loop
+// terminates when tea.Quit is processed and BubbleTea stops dispatching messages.
 func TickCmd() tea.Cmd {
 	return tea.Tick(32*time.Millisecond, func(time.Time) tea.Msg {
 		return TickMsg{}

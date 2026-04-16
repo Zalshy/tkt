@@ -99,7 +99,9 @@ func runRoleList(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintf(w, "%s\t%s%s\n", r.Name, r.BaseRole, suffix)
 	}
-	w.Flush()
+	if err := w.Flush(); err != nil {
+		return fmt.Errorf("role list: flush: %w", err)
+	}
 	return nil
 }
 

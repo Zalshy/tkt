@@ -57,9 +57,11 @@ func runNew(cmd *cobra.Command, args []string) error {
 
 	var depIDs []int64
 	if newAfter != "" {
-		parts := strings.Split(newAfter, ",")
+		parts, err := parseIDs(newAfter)
+		if err != nil {
+			return fmt.Errorf("new: --after: %w", err)
+		}
 		for _, raw := range parts {
-			raw = strings.TrimSpace(raw)
 			n, err := strconv.ParseInt(raw, 10, 64)
 			if err != nil {
 				return fmt.Errorf("new: --after: %q is not a valid ticket ID. Use comma-separated integers (e.g. --after 5,7)", raw)

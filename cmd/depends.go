@@ -54,7 +54,7 @@ func runDepends(cmd *cobra.Command, args []string) error {
 	_, err = session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("no active session. Run: tkt session --role architect\n           or: tkt session --role implementer")
+			return fmt.Errorf(msgNoSession)
 		}
 		return fmt.Errorf("depends: load session: %w", err)
 	}
@@ -110,6 +110,10 @@ func runDepends(cmd *cobra.Command, args []string) error {
 	}
 
 	if err := ticket.RemoveDependency(ticketID, removeID, database); err != nil {
+		if errors.Is(err, ticket.ErrNotFound) {
+			fmt.Fprintln(cmd.OutOrStderr(), "dependency not found")
+			return nil
+		}
 		return fmt.Errorf("depends: %w", err)
 	}
 

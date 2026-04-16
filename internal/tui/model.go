@@ -51,7 +51,6 @@ type RootModel struct {
 	db    *sql.DB
 	cfg   *config.ProjectConfig
 	root  string
-	sess  *models.Session
 	width int
 	height int
 
@@ -77,6 +76,10 @@ type RootModel struct {
 	// the confirm modal is shown and cleared on cancel or after execution.
 	pendingArchive []models.Ticket
 
+	// bulkArchiving is true while a bulkArchiveCmd goroutine is in flight.
+	// Used to prevent a second archive from being dispatched before the first completes.
+	bulkArchiving bool
+
 	// modals holds the active overlay state. Named "modals" (not "modal") to avoid
 	// shadowing the modal package identifier inside RootModel methods.
 	modals modal.Manager
@@ -86,7 +89,7 @@ type RootModel struct {
 // The header is initialised here (not in Init) because Init uses a value
 // receiver — any assignments inside Init are silently discarded.
 // No I/O is performed.
-func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string, sess *models.Session) RootModel {
+func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
 	var interval time.Duration
 	if cfg != nil {
 		interval = time.Duration(cfg.MonitorInterval) * time.Second
@@ -98,7 +101,6 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string, sess *mode
 		db:           db,
 		cfg:          cfg,
 		root:         root,
-		sess:         sess,
 		hdr:          header.New(0, 0),
 		board:        kanban.New(0, 0),
 		detail:       ticketdetail.New(0, 0, false),
@@ -175,6 +177,9 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
 			return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
 		}
+		if msg.Epoch != m.epoch {
+			return m, tea.Batch(cmds...)
+		}
 		m.allTickets = msg.Tickets
 		if m.db != nil {
 			if counts, err := session.CountActive(m.db); err == nil {
@@ -208,6 +213,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bulkArchiveDoneMsg:
 		m.pendingArchive = nil
+		m.bulkArchiving = false
 		if msg.err != nil {
 			toastContent := toast.Render("Archive failed: "+msg.err.Error(), toast.Error, m.width)
 			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
@@ -243,7 +249,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y", "enter":
 				m.modals = m.modals.Dismiss(modal.KindConfirm)
 				if len(m.pendingArchive) > 0 {
-					return m, bulkArchiveCmd(m.db, m.sess, m.pendingArchive)
+					m.bulkArchiving = true
+					return m, bulkArchiveCmd(m.db, m.root, m.pendingArchive)
 				}
 			default:
 				// n, N, esc, or any other key cancels
@@ -271,7 +278,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ftr = m.ftr.SetContext(footer.ContextSearch)
 
 		// X — bulk-archive VERIFIED tickets (keep N most recent).
-		case msg.String() == "X" && !m.search.IsActive() && !m.modals.HasActive():
+		case msg.String() == "X" && !m.search.IsActive() && !m.modals.HasActive() && !m.bulkArchiving:
 			keep := archiveKeep(m.cfg)
 			// Collect VERIFIED tickets from allTickets, sorted newest first.
 			var verified []models.Ticket
@@ -394,8 +401,12 @@ func renderConfirmModal(toArchive, keep int) string {
 
 // bulkArchiveCmd returns a tea.Cmd that sequentially archives tickets in a single
 // goroutine. NOT a fan-out — each ticket is processed after the previous completes.
-func bulkArchiveCmd(db *sql.DB, sess *models.Session, tickets []models.Ticket) tea.Cmd {
+func bulkArchiveCmd(db *sql.DB, root string, tickets []models.Ticket) tea.Cmd {
 	return func() tea.Msg {
+		sess, err := session.LoadActive(root, db)
+		if err != nil {
+			return bulkArchiveDoneMsg{err: fmt.Errorf("bulk archive: load session: %w", err)}
+		}
 		archived := 0
 		var failed []string
 		for _, t := range tickets {
@@ -433,6 +444,20 @@ func isCursorNav(msg tea.KeyMsg) bool {
 	return s == "j" || s == "k" || msg.Type == tea.KeyUp || msg.Type == tea.KeyDown
 }
 
+// visualStatus returns the column status a ticket visually belongs to.
+// StatusInProgress appears in the Planning column; StatusVerified in Done.
+// NOTE: must stay in sync with kanban/board.go SetTickets bucketing logic.
+func visualStatus(s models.Status) models.Status {
+	switch s {
+	case models.StatusInProgress:
+		return models.StatusPlanning
+	case models.StatusVerified:
+		return models.StatusDone
+	default:
+		return s
+	}
+}
+
 // ticketsForVisualCol returns all tickets that visually belong to the column
 // identified by status. Mirrors the bucketing in kanban/board.go SetTickets:
 //
@@ -443,13 +468,7 @@ func isCursorNav(msg tea.KeyMsg) bool {
 func ticketsForVisualCol(all []models.Ticket, status models.Status) []models.Ticket {
 	var out []models.Ticket
 	for _, t := range all {
-		visual := t.Status
-		if visual == models.StatusInProgress {
-			visual = models.StatusPlanning
-		} else if visual == models.StatusVerified {
-			visual = models.StatusDone
-		}
-		if visual == status {
+		if visualStatus(t.Status) == status {
 			out = append(out, t)
 		}
 	}
@@ -462,13 +481,7 @@ func ticketsForVisualCol(all []models.Ticket, status models.Status) []models.Tic
 func replaceStatusTickets(all []models.Ticket, status models.Status, replacement []models.Ticket) []models.Ticket {
 	out := make([]models.Ticket, 0, len(all))
 	for _, t := range all {
-		visual := t.Status
-		if visual == models.StatusInProgress {
-			visual = models.StatusPlanning
-		} else if visual == models.StatusVerified {
-			visual = models.StatusDone
-		}
-		if visual != status {
+		if visualStatus(t.Status) != status {
 			out = append(out, t)
 		}
 	}

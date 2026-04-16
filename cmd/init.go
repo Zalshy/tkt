@@ -83,9 +83,9 @@ func runInit(cmd *cobra.Command, args []string) error {
 	}
 
 	// Print success output (§7 format).
-	fmt.Printf("Initialized tkt project in %s\n", tktDir)
+	fmt.Fprintf(cmd.OutOrStdout(), "Initialized tkt project in %s\n", tktDir)
 	if gitignoreModified {
-		fmt.Println("Added .tkt/ to .gitignore")
+		fmt.Fprintf(cmd.OutOrStdout(), "Added .tkt/ to .gitignore\n")
 	}
 
 	return nil

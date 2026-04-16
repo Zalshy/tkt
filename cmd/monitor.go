@@ -51,7 +51,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	model := tui.NewRootModel(database, cfg, root, monSess)
+	model := tui.NewRootModel(database, cfg, root)
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("monitor: tui: %w", err)

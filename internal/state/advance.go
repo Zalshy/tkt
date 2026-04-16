@@ -1,6 +1,7 @@
 package state
 
 import (
+	"context"
 	"database/sql"
 	"errors"
 	"fmt"
@@ -30,7 +31,7 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	}
 
 	// Step 2: resolve the submitter from the last transition log entry.
-	entries, err := ilog.GetAll(normalizedID, db)
+	entries, err := ilog.GetAll(context.Background(), normalizedID, db)
 	if err != nil {
 		return fmt.Errorf("state.Execute: get log: %w", err)
 	}
@@ -69,7 +70,7 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 
 	// Step 5: plan guard — PLANNING → IN_PROGRESS requires a submitted plan.
 	if t.Status == models.StatusPlanning && to == models.StatusInProgress {
-		plan, err := ilog.LatestPlan(normalizedID, db)
+		plan, err := ilog.LatestPlan(context.Background(), normalizedID, db)
 		if err != nil {
 			return fmt.Errorf("state.Execute: check plan: %w", err)
 		}
@@ -97,8 +98,9 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	defer tx.Rollback() //nolint:errcheck // no-op after Commit; intentional
 
 	// TOCTOU guard: bind current status in WHERE clause so a concurrent writer is caught.
+	// The deleted_at IS NULL guard prevents status changes on soft-deleted tickets.
 	result, err := tx.Exec(
-		`UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ?`,
+		`UPDATE tickets SET status = ?, updated_at = datetime('now') WHERE id = ? AND status = ? AND deleted_at IS NULL`,
 		string(to), parsedIntID, string(t.Status),
 	)
 	if err != nil {
@@ -109,13 +111,13 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 		return fmt.Errorf("state.Execute: rows affected: %w", err)
 	}
 	if n != 1 {
-		return fmt.Errorf("concurrent modification: ticket status changed before write")
+		return fmt.Errorf("advance: ticket %v not found, already deleted, or status mismatch", parsedIntID)
 	}
 
 	// Step 9: append the transition log entry inside the same transaction.
 	fromStr := string(t.Status)
 	toStr := string(to)
-	if err := ilog.Append(parsedIntID, "transition", note, &fromStr, &toStr, actor, tx); err != nil {
+	if err := ilog.Append(context.Background(), parsedIntID, "transition", note, &fromStr, &toStr, actor, tx); err != nil {
 		return fmt.Errorf("state.Execute: log append: %w", err)
 	}
 

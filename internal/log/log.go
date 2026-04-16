@@ -19,13 +19,13 @@ type Execer interface {
 // Append inserts a new log entry for the given ticket.
 //
 // Validation rules:
-//   - kind must be "transition", "plan", "message", or "usage"
+//   - kind must be "transition", "plan", or "message"
 //   - body must be non-empty
 //   - if kind == "transition": both fromState and toState must be non-nil
 //   - if kind != "transition": both must be nil
-func Append(ticketID int64, kind, body string, fromState, toState *string, actor *models.Session, db Execer) error {
+func Append(ctx context.Context, ticketID int64, kind, body string, fromState, toState *string, actor *models.Session, db Execer) error {
 	switch kind {
-	case "transition", "plan", "message", "usage":
+	case "transition", "plan", "message":
 		// valid
 	default:
 		return fmt.Errorf("log.Append: invalid kind %q", kind)
@@ -48,7 +48,7 @@ func Append(ticketID int64, kind, body string, fromState, toState *string, actor
 	const q = `INSERT INTO ticket_log (ticket_id, session_id, kind, body, from_state, to_state)
 VALUES (?, ?, ?, ?, ?, ?)`
 
-	if _, err := db.ExecContext(context.Background(), q,
+	if _, err := db.ExecContext(ctx, q,
 		ticketID, actor.ID, kind, body, fromState, toState,
 	); err != nil {
 		return fmt.Errorf("log.Append: insert: %w", err)
@@ -59,7 +59,7 @@ VALUES (?, ?, ?, ?, ?, ?)`
 // GetAll returns all non-deleted log entries for ticketID in ascending chronological order.
 // ticketID may have an optional "#" prefix (e.g. "#1" or "1").
 // The returned slice is always non-nil — callers may rely on len == 0 for the empty case.
-func GetAll(ticketID string, db *sql.DB) ([]models.LogEntry, error) {
+func GetAll(ctx context.Context, ticketID string, db *sql.DB) ([]models.LogEntry, error) {
 	id, err := parseTicketID(ticketID)
 	if err != nil {
 		return nil, err
@@ -70,7 +70,7 @@ FROM ticket_log
 WHERE ticket_id = ? AND deleted_at IS NULL
 ORDER BY created_at ASC`
 
-	rows, err := db.QueryContext(context.Background(), q, id)
+	rows, err := db.QueryContext(ctx, q, id)
 	if err != nil {
 		return nil, fmt.Errorf("log.GetAll: query: %w", err)
 	}
@@ -94,7 +94,7 @@ ORDER BY created_at ASC`
 
 // LatestPlan returns the most recently created plan entry for ticketID, or nil if none exists.
 // ticketID may have an optional "#" prefix.
-func LatestPlan(ticketID string, db *sql.DB) (*models.LogEntry, error) {
+func LatestPlan(ctx context.Context, ticketID string, db *sql.DB) (*models.LogEntry, error) {
 	id, err := parseTicketID(ticketID)
 	if err != nil {
 		return nil, err
@@ -106,7 +106,7 @@ WHERE ticket_id = ? AND kind = 'plan' AND deleted_at IS NULL
 ORDER BY created_at DESC, id DESC
 LIMIT 1`
 
-	row := db.QueryRowContext(context.Background(), q, id)
+	row := db.QueryRowContext(ctx, q, id)
 
 	entry, err := scanLogEntry(row)
 	if errors.Is(err, sql.ErrNoRows) {

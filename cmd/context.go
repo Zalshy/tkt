@@ -77,7 +77,7 @@ func runContextAdd(cmd *cobra.Command, args []string) error {
 	sess, err := session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("tkt context add requires an active session. Run: tkt session --role implementer")
+			return fmt.Errorf(msgNoSession)
 		}
 		return fmt.Errorf("context add: load session: %w", err)
 	}
@@ -161,7 +161,7 @@ func runContextUpdate(cmd *cobra.Command, args []string) error {
 	sess, err := session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("tkt context update requires an active session. Run: tkt session --role implementer")
+			return fmt.Errorf(msgNoSession)
 		}
 		return fmt.Errorf("context update: load session: %w", err)
 	}
@@ -193,15 +193,6 @@ func runContextDelete(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("context delete: open db: %w", err)
 	}
 	defer database.Close()
-
-	sess, err := session.LoadActive(root, database)
-	if err != nil {
-		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("tkt context delete requires an active session. Run: tkt session --role implementer")
-		}
-		return fmt.Errorf("context delete: load session: %w", err)
-	}
-	_ = sess // session required but not passed to Delete (soft-delete doesn't need actor)
 
 	if err := internalctx.Delete(id, database); err != nil {
 		if errors.Is(err, internalctx.ErrNotFound) {

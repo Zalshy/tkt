@@ -1,6 +1,7 @@
 package state_test
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"io"
@@ -100,7 +101,7 @@ func TestExecute_HappyPath(t *testing.T) {
 	}
 
 	// Exactly one log entry.
-	entries, err := ilog.GetAll(id, database)
+	entries, err := ilog.GetAll(context.Background(), id, database)
 	if err != nil {
 		t.Fatalf("GetAll: %v", err)
 	}
@@ -231,7 +232,7 @@ func TestExecute_ForceWarning(t *testing.T) {
 	// Insert a transition log entry that records arch-grace as the last submitter.
 	fromStr := string(models.StatusInProgress)
 	toStr := string(models.StatusDone)
-	if err := ilog.Append(mustParseID(t, id), "transition", "done", &fromStr, &toStr, arch, database); err != nil {
+	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "done", &fromStr, &toStr, arch, database); err != nil {
 		t.Fatalf("seed log entry: %v", err)
 	}
 
@@ -287,7 +288,7 @@ func TestExecute_SubmitterResolution(t *testing.T) {
 	// (Simulates: arch-irene advanced the ticket to DONE.)
 	fromStr := string(models.StatusInProgress)
 	toStr := string(models.StatusDone)
-	if err := ilog.Append(mustParseID(t, id), "transition", "submitted", &fromStr, &toStr, archA, database); err != nil {
+	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "submitted", &fromStr, &toStr, archA, database); err != nil {
 		t.Fatalf("seed log entry: %v", err)
 	}
 

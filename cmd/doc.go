@@ -7,6 +7,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"text/tabwriter"
+	"time"
 
 	"github.com/spf13/cobra"
 	"github.com/zalshy/tkt/internal/db"
@@ -88,9 +89,6 @@ func runDocList(cmd *cobra.Command, args []string) error {
 		if filepath.Ext(name) != ".md" {
 			continue
 		}
-		if name == "archived" {
-			continue
-		}
 		meta, err := docs.ParseDocMeta(filepath.Join(dir, name))
 		if err != nil {
 			return fmt.Errorf("doc list: parse %s: %w", name, err)
@@ -122,7 +120,7 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 	sess, err := session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("tkt doc add requires an active session. Run: tkt session --role implementer")
+			return fmt.Errorf(msgNoSession)
 		}
 		return fmt.Errorf("doc add: load session: %w", err)
 	}
@@ -132,7 +130,7 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("doc add: next id: %w", err)
 	}
 
-	template := fmt.Sprintf("# %s — \n\n**Type:** analysis | plan | post-mortem | summary | design\n**Date:** 2026-04-05\n**By:** %s\n\n---\n\n(body)\n", id, string(sess.Role))
+	template := fmt.Sprintf("# %s — \n\n**Type:** analysis | plan | post-mortem | summary | design\n**Date:** %s\n**By:** %s\n\n---\n\n(body)\n", id, time.Now().Format("2006-01-02"), string(sess.Role))
 
 	tmp, err := os.CreateTemp("", "tkt-doc-*.md")
 	if err != nil {
@@ -220,7 +218,7 @@ func runDocArchive(cmd *cobra.Command, args []string) error {
 	_, err = session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf("tkt doc archive requires an active session. Run: tkt session --role implementer")
+			return fmt.Errorf(msgNoSession)
 		}
 		return fmt.Errorf("doc archive: load session: %w", err)
 	}

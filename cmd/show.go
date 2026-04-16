@@ -1,6 +1,7 @@
 package cmd
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -10,6 +11,7 @@ import (
 	ilog "github.com/zalshy/tkt/internal/log"
 	"github.com/zalshy/tkt/internal/output"
 	"github.com/zalshy/tkt/internal/ticket"
+	"github.com/zalshy/tkt/internal/usage"
 )
 
 var showCmd = &cobra.Command{
@@ -46,9 +48,14 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("show: get ticket: %w", err)
 	}
 
-	entries, err := ilog.GetAll(args[0], database)
+	entries, err := ilog.GetAll(context.Background(), args[0], database)
 	if err != nil {
 		return fmt.Errorf("show: get log: %w", err)
+	}
+
+	usageEntries, err := usage.GetForTicket(context.Background(), t.ID, database)
+	if err != nil {
+		return fmt.Errorf("show: get usage: %w", err)
 	}
 
 	deps, err := ticket.GetDependencies(t.ID, database)
@@ -56,7 +63,7 @@ func runShow(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("show: get dependencies: %w", err)
 	}
 
-	out := output.RenderTicket(*t, entries)
+	out := output.RenderTicket(*t, entries, usageEntries)
 	out += output.RenderDependencies(deps)
 	fmt.Fprint(cmd.OutOrStdout(), out)
 	return nil
