@@ -1,6 +1,7 @@
 package ticketdetail
 
 import (
+	"context"
 	"database/sql"
 	"fmt"
 	"strconv"
@@ -34,6 +35,12 @@ type Model struct {
 	height        int
 	epoch         int
 	rendered      string                // cached glamour output; rebuilt on SetTicket, SetDetail, SetSize
+	// renderer is a pointer shared across value copies of Model.  Sharing is
+	// safe because buildRendered — the only function that writes this field —
+	// is called exclusively from Update and the SetTicket/SetDetail/SetSize
+	// helpers, all of which run on the single BubbleTea goroutine.
+	// glamour.TermRenderer.Render is likewise single-goroutine; no concurrent
+	// access to the renderer ever occurs.
 	renderer      *glamour.TermRenderer // cached renderer; reused when width unchanged
 	rendererWidth int                   // width the cached renderer was built for
 }
@@ -256,11 +263,11 @@ func (m Model) buildRendered() Model {
 func LoadCmd(db *sql.DB, ticketID int64, epoch int) tea.Cmd {
 	return func() tea.Msg {
 		idStr := strconv.FormatInt(ticketID, 10)
-		logs, err := log.GetAll(idStr, db)
+		logs, err := log.GetAll(context.Background(), idStr, db)
 		if err != nil {
 			return DetailLoadedMsg{Epoch: epoch, Err: err}
 		}
-		plan, err := log.LatestPlan(idStr, db)
+		plan, err := log.LatestPlan(context.Background(), idStr, db)
 		if err != nil {
 			return DetailLoadedMsg{Epoch: epoch, Err: err}
 		}

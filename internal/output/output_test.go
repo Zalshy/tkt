@@ -81,7 +81,7 @@ func TestRenderList_HasMoreWithCount(t *testing.T) {
 
 func TestRenderTicket_Header(t *testing.T) {
 	ticket := models.Ticket{ID: 3, Status: models.StatusInProgress, Title: "implement session store"}
-	result := stripANSI(RenderTicket(ticket, nil))
+	result := stripANSI(RenderTicket(ticket, nil, nil))
 	if !strings.Contains(result, separator) {
 		t.Error("expected separator in output")
 	}
@@ -104,7 +104,7 @@ func TestRenderTicket_SyntheticCreated(t *testing.T) {
 		CreatedBy:   "arch-alice",
 		Description: "needs a persistent session store",
 	}
-	result := stripANSI(RenderTicket(ticket, nil))
+	result := stripANSI(RenderTicket(ticket, nil, nil))
 	if !strings.Contains(result, "arch-alice") {
 		t.Error("expected CreatedBy in output")
 	}
@@ -127,7 +127,7 @@ func TestRenderTicket_TransitionEntry(t *testing.T) {
 	entries := []models.LogEntry{
 		{Kind: "transition", SessionID: "impl-bob", Body: "picking this up", FromState: &from, ToState: &to},
 	}
-	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries))
+	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "↳ TODO → PLANNING") {
 		t.Errorf("expected transition arrow, got:\n%s", result)
 	}
@@ -148,7 +148,7 @@ func TestRenderTicket_PlanEntry(t *testing.T) {
 	entries := []models.LogEntry{
 		{Kind: "plan", SessionID: "impl-bob", Body: "## Approach\nUse a single sessions table."},
 	}
-	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries))
+	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "[plan]") {
 		t.Error("expected [plan] label")
 	}
@@ -171,7 +171,7 @@ func TestRenderTicket_MessageEntry(t *testing.T) {
 	entries := []models.LogEntry{
 		{Kind: "message", SessionID: "impl-bob", Body: "this is a message entry"},
 	}
-	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries))
+	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "this is a message entry") {
 		t.Error("expected message body")
 	}
@@ -191,7 +191,7 @@ func TestRenderTicket_Footer(t *testing.T) {
 		{Kind: "message", SessionID: "impl-carol", Body: "second", CreatedAt: time.Now().Add(-2 * time.Hour)},
 	}
 	ticket := models.Ticket{ID: 1, Title: "T", CreatedBy: "arch-alice"}
-	result := stripANSI(RenderTicket(ticket, entries))
+	result := stripANSI(RenderTicket(ticket, entries, nil))
 	if !strings.Contains(result, "3 sessions") {
 		t.Errorf("expected 3 sessions, got:\n%s", result)
 	}
@@ -209,7 +209,7 @@ func TestRenderTicket_EmptyEntries(t *testing.T) {
 		CreatedBy: "arch-alice",
 		CreatedAt: time.Now().Add(-1 * time.Hour),
 	}
-	result := stripANSI(RenderTicket(ticket, nil))
+	result := stripANSI(RenderTicket(ticket, nil, nil))
 	if !strings.Contains(result, "○ created") {
 		t.Error("expected synthetic created entry")
 	}
@@ -276,7 +276,7 @@ func TestRenderTicket_ColumnAlignment(t *testing.T) {
 	}
 	// t.CreatedBy "arch-alice" is 10 chars
 	ticket := models.Ticket{ID: 1, Title: "T", CreatedBy: "arch-alice"}
-	result := stripANSI(RenderTicket(ticket, entries))
+	result := stripANSI(RenderTicket(ticket, entries, nil))
 
 	// impl-bob (8 chars) should be padded to 22, then 4 spaces = 26 chars before content
 	for _, line := range strings.Split(result, "\n") {

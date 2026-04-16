@@ -113,7 +113,7 @@ func ValidateTransition(
 	if force {
 		return &ForceWarning{Message: strings.Join(violations, "\n")}
 	}
-	return errors.New(violations[0])
+	return errors.New(strings.Join(violations, "; "))
 }
 
 // NextState returns the natural forward next state for from.

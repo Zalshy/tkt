@@ -1,16 +1,17 @@
 package cmd
 
 import (
-	"encoding/json"
+	"context"
 	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/zalshy/tkt/internal/db"
-	tktlog "github.com/zalshy/tkt/internal/log"
+	"github.com/zalshy/tkt/internal/output"
 	"github.com/zalshy/tkt/internal/session"
 	"github.com/zalshy/tkt/internal/ticket"
+	"github.com/zalshy/tkt/internal/usage"
 )
 
 var (
@@ -37,15 +38,6 @@ func init() {
 	rootCmd.AddCommand(logCmd)
 }
 
-// usageBody is the JSON structure stored in ticket_log.body for kind="usage".
-type usageBody struct {
-	Tokens     int    `json:"tokens"`
-	Tools      int    `json:"tools,omitempty"`
-	DurationMs int    `json:"duration_ms,omitempty"`
-	Agent      string `json:"agent,omitempty"`
-	Label      string `json:"label,omitempty"`
-}
-
 func runLog(cmd *cobra.Command, args []string) error {
 	if logTokens <= 0 {
 		return fmt.Errorf("--tokens is required and must be > 0")
@@ -70,30 +62,15 @@ func runLog(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("log: load session: %w", err)
 	}
 
-	// Build JSON body.
-	ub := usageBody{
-		Tokens:     logTokens,
-		Tools:      logTools,
-		DurationMs: logDuration * 1000, // flag is seconds, store ms
-		Agent:      logAgent,
-		Label:      logLabel,
-	}
-	bodyBytes, err := json.Marshal(ub)
-	if err != nil {
-		return fmt.Errorf("log: marshal body: %w", err)
-	}
-	body := string(bodyBytes)
-
 	// Split comma-separated IDs.
-	rawIDs := strings.Split(args[0], ",")
+	rawIDs, err := parseIDs(args[0])
+	if err != nil {
+		return fmt.Errorf("log: %w", err)
+	}
 	var errs []string
 	out := cmd.OutOrStdout()
 
 	for _, rawID := range rawIDs {
-		rawID = strings.TrimSpace(rawID)
-		if rawID == "" {
-			continue
-		}
 
 		t, err := ticket.GetByID(rawID, database)
 		if err != nil {
@@ -101,15 +78,25 @@ func runLog(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if err := tktlog.Append(t.ID, "usage", body, nil, nil, sess, database); err != nil {
+		if err := usage.Append(
+			context.Background(),
+			t.ID,
+			sess.ID,
+			logTokens,
+			logTools,
+			logDuration*1000,
+			logAgent,
+			logLabel,
+			database,
+		); err != nil {
 			errs = append(errs, fmt.Sprintf("#%d: %v", t.ID, err))
 			continue
 		}
 
 		// Build output line with thousands separators.
-		parts := []string{formatInt(logTokens) + " tokens"}
+		parts := []string{output.FormatIntComma(logTokens) + " tokens"}
 		if logTools > 0 {
-			parts = append(parts, fmt.Sprintf("%s tools", formatInt(logTools)))
+			parts = append(parts, fmt.Sprintf("%s tools", output.FormatIntComma(logTools)))
 		}
 		if logDuration > 0 {
 			parts = append(parts, fmt.Sprintf("%ds", logDuration))
@@ -129,23 +116,3 @@ func runLog(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// formatInt formats an integer with thousands separators (e.g. 78155 → "78,155").
-func formatInt(n int) string {
-	s := fmt.Sprintf("%d", n)
-	if n < 0 {
-		s = s[1:]
-	}
-	// Insert commas from right.
-	result := []byte{}
-	for i, c := range []byte(s) {
-		pos := len(s) - i
-		if i > 0 && pos%3 == 0 {
-			result = append(result, ',')
-		}
-		result = append(result, c)
-	}
-	if n < 0 {
-		return "-" + string(result)
-	}
-	return string(result)
-}

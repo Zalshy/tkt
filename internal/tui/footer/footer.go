@@ -94,6 +94,13 @@ func (m Model) SetSessionCounts(c SessionCounts) Model {
 //  2. Key hint badges, truncated to fit within m.width.
 //
 // When m.width is 0, no truncation or centering is applied.
+//
+// View is intentionally stateless: it recalculates all output from m.width
+// and m.ctx on every call and writes nothing back to the receiver. The
+// transient copies produced by SetWidth and SetSessionCounts follow the
+// standard BubbleTea value-receiver pattern — the parent model is responsible
+// for storing the returned copy (e.g. m.ftr = m.ftr.SetWidth(w)), which is
+// what makes the updated state visible to the next View call.
 func (m Model) View() string {
 	// — session count line —
 	sessionText := fmt.Sprintf(

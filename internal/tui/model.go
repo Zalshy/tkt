@@ -76,6 +76,10 @@ type RootModel struct {
 	// the confirm modal is shown and cleared on cancel or after execution.
 	pendingArchive []models.Ticket
 
+	// bulkArchiving is true while a bulkArchiveCmd goroutine is in flight.
+	// Used to prevent a second archive from being dispatched before the first completes.
+	bulkArchiving bool
+
 	// modals holds the active overlay state. Named "modals" (not "modal") to avoid
 	// shadowing the modal package identifier inside RootModel methods.
 	modals modal.Manager
@@ -173,11 +177,16 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
 			return m, tea.Batch(append(cmds, toast.ExpireCmd())...)
 		}
+		if msg.Epoch != m.epoch {
+			return m, tea.Batch(cmds...)
+		}
 		m.allTickets = msg.Tickets
-		if counts, err := session.CountActive(m.db); err == nil {
-			m.sessionCounts = footer.SessionCounts{
-				Arch: counts[models.RoleArchitect],
-				Impl: counts[models.RoleImplementer],
+		if m.db != nil {
+			if counts, err := session.CountActive(m.db); err == nil {
+				m.sessionCounts = footer.SessionCounts{
+					Arch: counts[models.RoleArchitect],
+					Impl: counts[models.RoleImplementer],
+				}
 			}
 		}
 		if m.search.IsActive() {
@@ -204,6 +213,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case bulkArchiveDoneMsg:
 		m.pendingArchive = nil
+		m.bulkArchiving = false
 		if msg.err != nil {
 			toastContent := toast.Render("Archive failed: "+msg.err.Error(), toast.Error, m.width)
 			m.modals = m.modals.Show(modal.KindToast, toastContent, m.width)
@@ -239,6 +249,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			case "y", "Y", "enter":
 				m.modals = m.modals.Dismiss(modal.KindConfirm)
 				if len(m.pendingArchive) > 0 {
+					m.bulkArchiving = true
 					return m, bulkArchiveCmd(m.db, m.root, m.pendingArchive)
 				}
 			default:
@@ -267,7 +278,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.ftr = m.ftr.SetContext(footer.ContextSearch)
 
 		// X — bulk-archive VERIFIED tickets (keep N most recent).
-		case msg.String() == "X" && !m.search.IsActive() && !m.modals.HasActive():
+		case msg.String() == "X" && !m.search.IsActive() && !m.modals.HasActive() && !m.bulkArchiving:
 			keep := archiveKeep(m.cfg)
 			// Collect VERIFIED tickets from allTickets, sorted newest first.
 			var verified []models.Ticket
@@ -433,6 +444,20 @@ func isCursorNav(msg tea.KeyMsg) bool {
 	return s == "j" || s == "k" || msg.Type == tea.KeyUp || msg.Type == tea.KeyDown
 }
 
+// visualStatus returns the column status a ticket visually belongs to.
+// StatusInProgress appears in the Planning column; StatusVerified in Done.
+// NOTE: must stay in sync with kanban/board.go SetTickets bucketing logic.
+func visualStatus(s models.Status) models.Status {
+	switch s {
+	case models.StatusInProgress:
+		return models.StatusPlanning
+	case models.StatusVerified:
+		return models.StatusDone
+	default:
+		return s
+	}
+}
+
 // ticketsForVisualCol returns all tickets that visually belong to the column
 // identified by status. Mirrors the bucketing in kanban/board.go SetTickets:
 //
@@ -443,13 +468,7 @@ func isCursorNav(msg tea.KeyMsg) bool {
 func ticketsForVisualCol(all []models.Ticket, status models.Status) []models.Ticket {
 	var out []models.Ticket
 	for _, t := range all {
-		visual := t.Status
-		if visual == models.StatusInProgress {
-			visual = models.StatusPlanning
-		} else if visual == models.StatusVerified {
-			visual = models.StatusDone
-		}
-		if visual == status {
+		if visualStatus(t.Status) == status {
 			out = append(out, t)
 		}
 	}
@@ -462,13 +481,7 @@ func ticketsForVisualCol(all []models.Ticket, status models.Status) []models.Tic
 func replaceStatusTickets(all []models.Ticket, status models.Status, replacement []models.Ticket) []models.Ticket {
 	out := make([]models.Ticket, 0, len(all))
 	for _, t := range all {
-		visual := t.Status
-		if visual == models.StatusInProgress {
-			visual = models.StatusPlanning
-		} else if visual == models.StatusVerified {
-			visual = models.StatusDone
-		}
-		if visual != status {
+		if visualStatus(t.Status) != status {
 			out = append(out, t)
 		}
 	}

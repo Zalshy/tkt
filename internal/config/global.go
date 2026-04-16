@@ -42,7 +42,8 @@ func LoadGlobal() (*GlobalConfig, error) {
 
 	path, err := globalConfigPath()
 	if err != nil {
-		// Can't resolve config dir (e.g. $HOME unset in CI). Treat as missing — defaults.
+		// Can't resolve config dir (e.g. $HOME unset in CI). Warn and return defaults.
+		fmt.Fprintf(os.Stderr, "tkt: warning: could not resolve user config dir: %v\n", err)
 		return cfg, nil
 	}
 

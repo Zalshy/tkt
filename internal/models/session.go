@@ -8,6 +8,7 @@ type Role string
 const (
 	RoleArchitect   Role = "architect"
 	RoleImplementer Role = "implementer"
+	RoleMonitor     Role = "monitor"
 )
 
 // Session maps to the sessions table.

@@ -30,8 +30,9 @@ const (
 // current when the content was rendered. Both fields are unexported; access them
 // through Manager methods.
 type Modal struct {
-	content string
-	width   int
+	content  string
+	width    int
+	occupied bool
 }
 
 // Manager stores one Modal slot per Kind. It is a value type; all methods return
@@ -56,7 +57,7 @@ func (m Manager) Show(kind Kind, content string, width int) Manager {
 	if kind <= KindNone || kind >= numKinds {
 		return m
 	}
-	m.slots[kind] = Modal{content: content, width: width}
+	m.slots[kind] = Modal{content: content, width: width, occupied: true}
 	return m
 }
 
@@ -79,7 +80,7 @@ func (m Manager) DismissAll() Manager {
 // Returns (KindNone, "") when no modals are active.
 func (m Manager) Active() (Kind, string) {
 	for i := Kind(1); i < numKinds; i++ {
-		if m.slots[i].content != "" {
+		if m.slots[i].occupied {
 			return i, m.slots[i].content
 		}
 	}

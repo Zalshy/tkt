@@ -5,12 +5,12 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/zalshy/tkt/internal/db"
 	"github.com/zalshy/tkt/internal/models"
-	"github.com/zalshy/tkt/internal/project"
 )
 
 const testSessionID = "impl-test-ffff"
@@ -19,7 +19,7 @@ const testSessionID = "impl-test-ffff"
 func setupDB(t *testing.T) (root string, sqlDB *sql.DB) {
 	t.Helper()
 	root = t.TempDir()
-	if err := os.MkdirAll(project.TicketsDir(root), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".tkt"), 0o755); err != nil {
 		t.Fatalf("mkdir .tkt: %v", err)
 	}
 	sqlDB, err := db.Open(root)
@@ -598,8 +598,12 @@ func TestRemoveDependency_EdgeNotFound(t *testing.T) {
 		t.Fatalf("Create B: %v", err)
 	}
 
-	// No dependency row inserted — remove should return nil (idempotent).
-	if err := RemoveDependency(b.ID, a.ID, sqlDB); err != nil {
-		t.Fatalf("expected nil error for non-existent edge, got: %v", err)
+	// No dependency row inserted — remove should return ErrNotFound.
+	err = RemoveDependency(b.ID, a.ID, sqlDB)
+	if err == nil {
+		t.Fatal("expected ErrNotFound for non-existent edge, got nil")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got: %v", err)
 	}
 }

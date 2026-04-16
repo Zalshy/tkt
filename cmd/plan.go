@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"io"
@@ -72,14 +73,14 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Non-empty planBody means a flag was supplied — save and return.
 	// ("", nil) means no flag set; fall through to $EDITOR path below.
 	if planBody != "" {
-		if err := log.Append(t.ID, "plan", planBody, nil, nil, sess, database); err != nil {
+		if err := log.Append(context.Background(), t.ID, "plan", planBody, nil, nil, sess, database); err != nil {
 			return fmt.Errorf("plan: save: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Plan updated for #%d\n", t.ID)
 		return nil
 	}
 
-	entry, err := log.LatestPlan(strconv.FormatInt(t.ID, 10), database)
+	entry, err := log.LatestPlan(context.Background(), strconv.FormatInt(t.ID, 10), database)
 	if err != nil {
 		return fmt.Errorf("plan: load existing plan: %w", err)
 	}
@@ -126,7 +127,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := log.Append(t.ID, "plan", string(newContent), nil, nil, sess, database); err != nil {
+	if err := log.Append(context.Background(), t.ID, "plan", string(newContent), nil, nil, sess, database); err != nil {
 		return fmt.Errorf("plan: save: %w", err)
 	}
 

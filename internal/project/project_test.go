@@ -79,7 +79,6 @@ func TestPathHelpers(t *testing.T) {
 		got  string
 		want string
 	}{
-		{"TicketsDir", TicketsDir("/foo"), "/foo/.tkt"},
 		{"SessionFile", SessionFile("/foo"), "/foo/.tkt/session"},
 		{"DBPath", DBPath("/foo"), "/foo/.tkt/db.sqlite"},
 	}

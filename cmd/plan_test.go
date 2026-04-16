@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -144,7 +145,7 @@ func TestPlan_BodyFlag(t *testing.T) {
 	defer database.Close()
 
 	idInt, _ := strconv.ParseInt(id, 10, 64)
-	entry, err := log.LatestPlan(strconv.FormatInt(idInt, 10), database)
+	entry, err := log.LatestPlan(context.Background(), strconv.FormatInt(idInt, 10), database)
 	if err != nil {
 		t.Fatalf("LatestPlan: %v", err)
 	}
@@ -196,7 +197,7 @@ func TestPlan_StdinFlag(t *testing.T) {
 	defer database.Close()
 
 	idInt, _ := strconv.ParseInt(id, 10, 64)
-	entry, err := log.LatestPlan(strconv.FormatInt(idInt, 10), database)
+	entry, err := log.LatestPlan(context.Background(), strconv.FormatInt(idInt, 10), database)
 	if err != nil {
 		t.Fatalf("LatestPlan: %v", err)
 	}
@@ -256,7 +257,7 @@ func TestPlan_FileFlag(t *testing.T) {
 	defer database.Close()
 
 	idInt, _ := strconv.ParseInt(id, 10, 64)
-	entry, err := log.LatestPlan(strconv.FormatInt(idInt, 10), database)
+	entry, err := log.LatestPlan(context.Background(), strconv.FormatInt(idInt, 10), database)
 	if err != nil {
 		t.Fatalf("LatestPlan: %v", err)
 	}

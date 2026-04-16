@@ -3,6 +3,7 @@ package db
 import (
 	"database/sql"
 	"fmt"
+	"os"
 )
 
 // migrations is an ordered slice of SQL migration batches.
@@ -109,6 +110,167 @@ CREATE INDEX idx_project_context_deleted_at ON project_context(deleted_at)`,
 	{
 		`ALTER TABLE tickets ADD COLUMN tier TEXT NOT NULL DEFAULT 'standard'`,
 	},
+	// V6 — add missing indexes for common query patterns.
+	{
+		createIndexTicketsStatusDeletedAt,
+		createIndexTicketLogTicketIDKind,
+		createIndexTicketDependsDependsOn,
+		createIndexSessionsExpiredAt,
+	},
+	// V7 — introduce ticket_usage table and backfill from ticket_log.
+	// Verification in verifyV7Backfill() asserts COUNT parity before commit.
+	{
+		createTableTicketUsage,
+		createIndexTicketUsageTicketIDDeletedAt,
+		`INSERT INTO ticket_usage (ticket_id, session_id, tokens, tools, duration_ms, agent, label, created_at)
+SELECT
+    ticket_id,
+    session_id,
+    COALESCE(CAST(json_extract(body, '$.tokens')      AS INTEGER), 0),
+    COALESCE(CAST(json_extract(body, '$.tools')       AS INTEGER), 0),
+    COALESCE(CAST(json_extract(body, '$.duration_ms') AS INTEGER), 0),
+    COALESCE(json_extract(body, '$.agent'), ''),
+    COALESCE(json_extract(body, '$.label'), ''),
+    created_at
+FROM ticket_log
+WHERE kind = 'usage'
+  AND deleted_at IS NULL`,
+	},
+	// V8 — delete usage rows from ticket_log now that backfill into ticket_usage
+	// (V7) has been verified. The data lives in ticket_usage; ticket_log no
+	// longer needs these rows.
+	{
+		`DELETE FROM ticket_log WHERE kind = 'usage'`,
+	},
+	// V9 — rebuild ticket_log as ticket_log_new with CHECK(kind) and FK(session_id).
+	// No DROP or RENAME in this ticket — that is V10 (#153).
+	// Verification in verifyV9Backfill asserts COUNT(*) parity before commit.
+	{
+		createTableTicketLogNew,
+		createIndexTicketLogNewTicketID,
+		createIndexTicketLogNewKind,
+		createIndexTicketLogNewDeletedAt,
+		createIndexTicketLogNewTicketIDKind,
+		`INSERT INTO ticket_log_new
+         (id, ticket_id, session_id, kind, body, from_state, to_state, created_at, deleted_at)
+     SELECT
+          id, ticket_id, session_id, kind, body, from_state, to_state, created_at, deleted_at
+     FROM ticket_log`,
+	},
+	// V10 — drop old ticket_log, rename ticket_log_new to ticket_log, rebuild canonical indexes.
+	// Row-count parity was already asserted by verifyV9Backfill in V9.
+	// Order is critical: drop _new indexes before DROP TABLE ticket_log (different table),
+	// then drop canonical indexes on ticket_log, then DROP TABLE ticket_log, then RENAME,
+	// then recreate canonical indexes on the renamed table.
+	{
+		`DROP INDEX idx_ticket_log_new_ticket_id`,
+		`DROP INDEX idx_ticket_log_new_kind`,
+		`DROP INDEX idx_ticket_log_new_deleted_at`,
+		`DROP INDEX idx_ticket_log_new_ticket_id_kind`,
+		`DROP INDEX idx_ticket_log_ticket_id`,
+		`DROP INDEX idx_ticket_log_kind`,
+		`DROP INDEX idx_ticket_log_deleted_at`,
+		`DROP INDEX idx_ticket_log_ticket_id_kind`,
+		`DROP TABLE ticket_log`,
+		`ALTER TABLE ticket_log_new RENAME TO ticket_log`,
+		createIndexTicketLogTicketID,
+		createIndexTicketLogKind,
+		createIndexTicketLogDeletedAt,
+		createIndexTicketLogTicketIDKind,
+		},
+		// V11 — rebuild ticket_dependencies as ticket_dependencies_new with DATETIME created_at.
+		// No DROP or RENAME in this ticket — that is V12 (#155).
+		// Verification in verifyV11Backfill asserts COUNT(*) parity before commit.
+		{
+			createTableTicketDependenciesNew,
+			createIndexTicketDependenciesNewDependsOn,
+			`INSERT INTO ticket_dependencies_new
+         (ticket_id, depends_on, created_at)
+     SELECT
+          ticket_id, depends_on, created_at
+     FROM ticket_dependencies`,
+		},
+	// V12 — drop old ticket_dependencies, rename ticket_dependencies_new to ticket_dependencies,
+	// rebuild canonical index. Row-count parity was already asserted by verifyV11Backfill in V11.
+	{
+		`DROP INDEX idx_ticket_dependencies_new_depends_on`,
+		`DROP INDEX idx_ticket_dependencies_depends_on`,
+		`DROP TABLE ticket_dependencies`,
+		`ALTER TABLE ticket_dependencies_new RENAME TO ticket_dependencies`,
+		createIndexTicketDependsDependsOn,
+	},
+}
+
+// verifyV7Backfill asserts that the number of rows inserted into ticket_usage
+// matches the number of source rows in ticket_log with kind='usage'.
+// It is package-level (not a closure) so that migration tests can call it directly.
+func verifyV7Backfill(tx *sql.Tx) error {
+	var sourceCount, backfilledCount int
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_log WHERE kind='usage' AND deleted_at IS NULL`,
+	).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V7 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_usage`,
+	).Scan(&backfilledCount); err != nil {
+		return fmt.Errorf("migrate: V7 verify: backfill count: %w", err)
+	}
+	if backfilledCount != sourceCount {
+		return fmt.Errorf(
+			"migrate: V7 backfill count mismatch: source=%d backfilled=%d",
+			sourceCount, backfilledCount,
+		)
+	}
+	return nil
+}
+
+// verifyV9Backfill asserts that the number of rows copied into ticket_log_new
+// matches the total row count in ticket_log (all rows, including deleted ones).
+// It is package-level (not a closure) so that migration tests can call it directly.
+func verifyV9Backfill(tx *sql.Tx) error {
+	var sourceCount, newCount int
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_log`,
+	).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V9 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_log_new`,
+	).Scan(&newCount); err != nil {
+		return fmt.Errorf("migrate: V9 verify: new count: %w", err)
+	}
+	if newCount != sourceCount {
+		return fmt.Errorf(
+			"migrate: V9 backfill count mismatch: source=%d new=%d",
+			sourceCount, newCount,
+		)
+	}
+	return nil
+}
+
+// verifyV11Backfill asserts that the number of rows copied into ticket_dependencies_new
+// matches the total row count in ticket_dependencies (all rows).
+// It is package-level (not a closure) so that migration tests can call it directly.
+func verifyV11Backfill(tx *sql.Tx) error {
+	var sourceCount, newCount int
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_dependencies`,
+	).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V11 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(
+		`SELECT COUNT(*) FROM ticket_dependencies_new`,
+	).Scan(&newCount); err != nil {
+		return fmt.Errorf("migrate: V11 verify: new count: %w", err)
+	}
+	if newCount != sourceCount {
+		return fmt.Errorf(
+			"migrate: V11 backfill count mismatch: source=%d new=%d",
+			sourceCount, newCount,
+		)
+	}
+	return nil
 }
 
 // migrate ensures the schema_version table exists, then applies any
@@ -146,6 +308,33 @@ func migrate(db *sql.DB) error {
 			if _, err := tx.Exec(stmt); err != nil {
 				_ = tx.Rollback()
 				return fmt.Errorf("migrate: V%d statement failed: %w", targetVersion, err)
+			}
+		}
+
+		if targetVersion == 7 {
+			if err := verifyV7Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+			// After verifyV7Backfill passes, check for corrupt rows.
+			var zeroTokens int
+			_ = tx.QueryRow(`SELECT COUNT(*) FROM ticket_usage WHERE tokens = 0`).Scan(&zeroTokens)
+			if zeroTokens > 0 {
+				fmt.Fprintf(os.Stderr, "tkt: warning: V7 backfill: %d ticket_usage rows have tokens=0 (malformed source data)\n", zeroTokens)
+			}
+		}
+
+		if targetVersion == 9 {
+			if err := verifyV9Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		if targetVersion == 11 {
+			if err := verifyV11Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
 			}
 		}
 

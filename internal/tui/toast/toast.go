@@ -55,6 +55,9 @@ func Render(message string, variant Variant, width int) string {
 }
 
 // ExpireCmd returns a tea.Cmd that sleeps 3 seconds then emits ToastExpiredMsg.
+// The goroutine spawned by time.Sleep has no cancellation path. This is
+// acceptable: the toast lifetime is 3 seconds and any in-flight sleep exits
+// with the process when BubbleTea calls tea.Quit.
 func ExpireCmd() tea.Cmd {
 	return func() tea.Msg {
 		time.Sleep(3 * time.Second)

@@ -10,15 +10,25 @@ import (
 
 // wordlist is the pool from which random session IDs are drawn.
 var wordlist = []string{
+	// original 30
 	"cedar", "oak", "pine", "birch", "elm", "ash", "ivy", "vale", "cove", "moor",
 	"dusk", "dawn", "fern", "reed", "moss", "clay", "flint", "sage", "wren", "crow",
 	"haze", "gale", "tern", "lark", "bolt", "gust", "tide", "reef", "dune", "crag",
+	// added ~70 short nature/landscape words
+	"fog", "fen", "bay", "burn", "col", "dale", "dell", "fell", "ford", "glen",
+	"gorge", "heath", "holm", "isle", "knoll", "lea", "loch", "mere", "mire", "nook",
+	"peat", "rill", "shaw", "tarn", "tor", "beck", "bluff", "bog", "brow", "cape",
+	"crest", "croft", "down", "eddy", "gill", "holt", "hurst", "lin", "marl", "ness",
+	"pike", "pool", "scree", "sedge", "sump", "swale", "turf", "weir", "wold", "cay",
+	"carr", "lade", "leat", "esker", "floe", "grot", "howe", "linn", "plash", "rake",
+	"rigg", "voe", "brae", "lagg", "rand", "skerry", "sloe", "tump", "wath", "wynd",
 }
 
 // namePattern is the validation regex for user-supplied session names.
 // Allows lowercase alphanumeric and internal hyphens; no leading/trailing/consecutive hyphens.
-// Minimum 2 characters (single char is also accepted when no hyphen is involved — the
-// regex allows [a-z0-9] alone for the single-char case via the alternation).
+// Minimum 1 character; maximum 32 (enforced separately in ValidateName).
+// Allows a single [a-z0-9] character OR a sequence starting and ending with
+// [a-z0-9] with optional internal hyphens.
 var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 
 // consecutiveHyphens matches two or more hyphens in a row.
@@ -61,14 +71,11 @@ func ValidateName(name string) error {
 	return nil
 }
 
-// randomHex4 returns a 4-character lowercase hex string.
-// Uses crypto/rand for security; falls back to math/rand if unavailable.
-func randomHex4() string {
+// randomHex4 returns a 4-character lowercase hex string using crypto/rand.
+func randomHex4() (string, error) {
 	buf := make([]byte, 2)
 	if _, err := rand.Read(buf); err != nil {
-		n := mrand.Int63() //nolint:gosec
-		buf[0] = byte(n)
-		buf[1] = byte(n >> 8)
+		return "", fmt.Errorf("randomHex4: crypto/rand: %w", err)
 	}
-	return hex.EncodeToString(buf)
+	return hex.EncodeToString(buf), nil
 }

@@ -2,12 +2,13 @@ package db
 
 import (
 	"database/sql"
+	"errors"
 	"fmt"
 	"os"
-	"strings"
 
 	"github.com/zalshy/tkt/internal/project"
-	_ "modernc.org/sqlite" // registers the "sqlite" driver via side-effect import
+	sqlite3 "modernc.org/sqlite"        // registers the "sqlite" driver and provides typed errors
+	sqlite3lib "modernc.org/sqlite/lib" // for SQLITE_LOCKED / SQLITE_BUSY constants
 )
 
 // Open opens the SQLite database at the path computed from projectRoot, enables WAL
@@ -68,16 +69,18 @@ func Open(projectRoot string) (db *sql.DB, openErr error) {
 	return db, nil
 }
 
-// wrapSQLiteError detects SQLite "database is locked" errors and returns a
-// human-readable message. String matching is used because modernc.org/sqlite
-// does not export typed errors for lock conditions. If the error format changes
-// in a future driver version, this detection will silently stop working.
+// wrapSQLiteError detects SQLite locked/busy errors via type assertion and returns a
+// human-readable message. Uses modernc.org/sqlite's typed Error so the detection
+// is robust to error message changes in future driver versions.
 func wrapSQLiteError(err error) error {
 	if err == nil {
 		return nil
 	}
-	if strings.Contains(err.Error(), "database is locked") {
-		return fmt.Errorf("database is locked by another process — wait and retry, or check for a hung tkt process: %w", err)
+	var sqliteErr *sqlite3.Error
+	if errors.As(err, &sqliteErr) {
+		if sqliteErr.Code() == sqlite3lib.SQLITE_LOCKED || sqliteErr.Code() == sqlite3lib.SQLITE_BUSY {
+			return fmt.Errorf("database is locked by another process — wait and retry, or check for a hung tkt process: %w", err)
+		}
 	}
 	return err
 }

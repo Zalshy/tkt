@@ -93,8 +93,10 @@ type Theme struct {
 // Only non-zero color fields are applied. KeyHint is applied only when
 // t.KeyHintSet is true.
 //
-// ApplyTheme is not safe for concurrent use. It is intended to be called
-// once at program startup before tea.NewProgram.
+// ApplyTheme is not safe for concurrent use: it mutates package-level vars
+// (Primary, BgDeep, KeyHint, etc.) with no synchronisation. This is safe in
+// practice because ApplyTheme is called exactly once at program startup,
+// before tea.NewProgram is called and before any goroutine reads those vars.
 func ApplyTheme(t Theme) {
 	if t.Primary != "" {
 		Primary = t.Primary

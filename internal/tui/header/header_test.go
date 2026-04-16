@@ -48,7 +48,7 @@ func TestAnimation_CompletesEventually(t *testing.T) {
 	const maxTicks = 50
 	for i := 0; i < maxTicks; i++ {
 		var cmd interface{}
-		m, cmd = m.Update(tickMsg{})
+		m, cmd = m.Update(TickMsg{})
 		_ = cmd
 		if m.animDone {
 			return // passed

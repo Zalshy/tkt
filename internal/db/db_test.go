@@ -41,6 +41,7 @@ func TestOpen_NewFile(t *testing.T) {
 	removedTables := []string{
 		"ticket_events",
 		"ticket_comments",
+		"ticket_log_new",
 	}
 	for _, table := range removedTables {
 		var name string
@@ -49,6 +50,23 @@ func TestOpen_NewFile(t *testing.T) {
 		).Scan(&name)
 		if err == nil {
 			t.Errorf("table %q should not exist but was found in sqlite_master", table)
+		}
+	}
+
+	// Verify _new indexes do NOT exist (dropped by V10 before rename).
+	removedIndexes := []string{
+		"idx_ticket_log_new_ticket_id",
+		"idx_ticket_log_new_kind",
+		"idx_ticket_log_new_deleted_at",
+		"idx_ticket_log_new_ticket_id_kind",
+	}
+	for _, idx := range removedIndexes {
+		var name string
+		err := db.QueryRow(
+			`SELECT name FROM sqlite_master WHERE type='index' AND name=?`, idx,
+		).Scan(&name)
+		if err == nil {
+			t.Errorf("index %q should not exist after V10 but was found in sqlite_master", idx)
 		}
 	}
 
@@ -192,8 +210,8 @@ func TestOpen_SchemaVersion(t *testing.T) {
 	if err := db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 5 {
-		t.Errorf("schema_version = %d, want 5", version)
+	if version != 10 {
+		t.Errorf("schema_version = %d, want 10", version)
 	}
 
 	// Ensure exactly one row in schema_version.

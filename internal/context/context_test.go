@@ -4,11 +4,11 @@ import (
 	"database/sql"
 	"errors"
 	"os"
+	"path/filepath"
 	"testing"
 
 	"github.com/zalshy/tkt/internal/db"
 	"github.com/zalshy/tkt/internal/models"
-	"github.com/zalshy/tkt/internal/project"
 )
 
 const testSessionID = "impl-test-ffff"
@@ -16,7 +16,7 @@ const testSessionID = "impl-test-ffff"
 func setupDB(t *testing.T) (root string, sqlDB *sql.DB) {
 	t.Helper()
 	root = t.TempDir()
-	if err := os.MkdirAll(project.TicketsDir(root), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(root, ".tkt"), 0o755); err != nil {
 		t.Fatalf("mkdir .tkt: %v", err)
 	}
 	sqlDB, err := db.Open(root)

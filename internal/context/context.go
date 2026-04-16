@@ -118,9 +118,9 @@ func Update(id int, title, body string, actor *models.Session, db *sql.DB) error
 
 	result, err := db.Exec(
 		`UPDATE project_context
-		 SET title = ?, body = ?, session_id = ?, updated_at = datetime('now')
+		 SET title = ?, body = ?, updated_at = datetime('now')
 		 WHERE id = ? AND deleted_at IS NULL`,
-		title, body, actor.ID, id,
+		title, body, id,
 	)
 	if err != nil {
 		return fmt.Errorf("context.Update: exec: %w", err)

@@ -45,7 +45,7 @@ func End(root string, db *sql.DB) (sessionID string, err error) {
 	}
 
 	result, err := db.Exec(
-		`UPDATE sessions SET expired_at = datetime('now') WHERE id = ?`,
+		`UPDATE sessions SET expired_at = datetime('now') WHERE id = ? AND expired_at IS NULL`,
 		id,
 	)
 	if err != nil {
@@ -56,6 +56,11 @@ func End(root string, db *sql.DB) (sessionID string, err error) {
 		return "", fmt.Errorf("End: rows affected: %w", err)
 	}
 	if n == 0 {
+		var exists int
+		_ = db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ?`, id).Scan(&exists)
+		if exists > 0 {
+			return id, nil // already expired — idempotent
+		}
 		return "", fmt.Errorf("End: session %q not found in database", id)
 	}
 
@@ -64,12 +69,16 @@ func End(root string, db *sql.DB) (sessionID string, err error) {
 
 // updateLastActive sets last_active = NOW() for the session with the given ID.
 func updateLastActive(db *sql.DB, id string) error {
-	_, err := db.Exec(
-		`UPDATE sessions SET last_active = datetime('now') WHERE id = ?`,
-		id,
-	)
+	result, err := db.Exec(`UPDATE sessions SET last_active = datetime('now') WHERE id = ?`, id)
 	if err != nil {
 		return fmt.Errorf("updateLastActive: %w", err)
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("updateLastActive: rows affected: %w", err)
+	}
+	if n == 0 {
+		return fmt.Errorf("updateLastActive: session %q not found or already deleted", id)
 	}
 	return nil
 }

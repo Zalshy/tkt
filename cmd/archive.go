@@ -44,15 +44,14 @@ func runArchive(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("archive: load session: %w", err)
 	}
 
-	rawIDs := strings.Split(args[0], ",")
+	rawIDs, err := parseIDs(args[0])
+	if err != nil {
+		return fmt.Errorf("archive: %w", err)
+	}
 	out := cmd.OutOrStdout()
 
 	var errs []string
-	for _, raw := range rawIDs {
-		id := strings.TrimSpace(raw)
-		if id == "" {
-			continue
-		}
+	for _, id := range rawIDs {
 
 		t, err := ticket.GetByID(id, database)
 		if err != nil {
