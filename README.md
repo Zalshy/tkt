@@ -2,6 +2,8 @@
 
 A project-local CLI ticket system with role-based session isolation and a plan-first workflow. Built for human + AI agent collaboration.
 
+tkt is **LLM-CLI agnostic** — it ships an MCP server over stdio so any MCP-compatible tool (Claude Code, Claude Desktop, Cursor, Zed, or your own agent) can drive it without glue code. The workflow, state machine, and audit trail are the same regardless of what's on the other end of the pipe.
+
 ## Install
 
 ```bash
@@ -42,8 +44,6 @@ tkt role create security-expert --like architect
 tkt session --role security-expert
 ```
 
-> Role customisation will be expanded in future updates.
-
 ## Commands
 
 ```
@@ -56,19 +56,20 @@ tkt list                            List open tickets
 tkt show <id>                       Show a ticket with full log
 tkt advance <id>                    Move a ticket to the next state
 tkt plan <id>                       Write or revise a ticket plan (opens $EDITOR)
-tkt plan <id> --body "<text>"       Supply plan inline
-tkt plan <id> --stdin               Read plan from stdin (pipe)
-tkt plan <id> --file <path>         Read plan from file
+tkt plan <id> --body/--stdin/--file Supply plan non-interactively
 tkt comment <id> "<msg>"            Add a comment to a ticket
 tkt depends <id> --on <ids>         Declare ticket dependencies
+tkt tier <id> <tier>                Set ticket tier (critical|standard|low)
 tkt context readall/add/update/delete  Manage project context entries
 tkt role create/list/delete         Manage custom roles
 tkt doc add/list/read/archive       Manage documents
+tkt doc add <slug> --body/--stdin/--file  Create a document non-interactively
 tkt search <query>                  Substring search across ticket titles and descriptions
 tkt log <id> --tokens N             Record token/tool/duration usage against a ticket
 tkt archive <id>                    Archive a VERIFIED ticket (terminal state)
 tkt cleanup                         Expire stale sessions and run maintenance
-tkt monitor                         Read-only TUI dashboard (auto-refreshes every MonitorInterval seconds, default 5s)
+tkt monitor                         Read-only TUI dashboard (auto-refreshes every 5s)
+tkt mcp                             Start MCP server (stdio transport)
 ```
 
 ## Ticket lifecycle
@@ -94,21 +95,18 @@ Implementer picks up + writes plan  →  Architect approves  →  Implementer ex
            PLANNING                        IN_PROGRESS                DONE                  VERIFIED
 ```
 
-### Non-interactive plan input
+### Non-interactive input
 
-Three flags allow plan content to be supplied without opening `$EDITOR`:
+`tkt plan` and `tkt doc add` both support `--body`, `--stdin`, and `--file` flags to skip `$EDITOR` — useful for agents and scripts:
 
 ```bash
-# inline string
-tkt plan 42 --body "## Plan
-...content..."
+tkt plan 42 --body "## Plan\n..."
+cat plan.md | tkt plan 42 --stdin
+tkt plan 42 --file ./plan.md
 
-# pipe from stdin — ideal for LLM agents
-echo "## Plan" | tkt plan 42 --stdin
-cat plan.md    | tkt plan 42 --stdin
-
-# from file — write in your editor, then commit
-tkt plan 42 --file ./drafts/plan-42.md
+tkt doc add my-slug --body "# D001 — Title\n..."
+cat doc.md | tkt doc add my-slug --stdin
+tkt doc add my-slug --file ./doc.md
 ```
 
 All three are mutually exclusive. An empty body is an error.
@@ -165,6 +163,30 @@ The TUI monitor (`tkt monitor`) shows a live kanban board. Key bindings:
 - `q` / `Ctrl+C` — quit
 
 The footer displays centered key hints. A session count line above the footer shows active sessions by role: `🧠 arch: N   ⚙️ impl: N`.
+
+## MCP server
+
+tkt ships a built-in MCP server over stdio, compatible with any MCP-capable LLM tool:
+
+```
+command:   tkt
+args:      ["mcp"]
+transport: stdio
+```
+
+Run `tkt init` in a project for the exact snippet to paste into your tool's config.
+
+### Options
+
+```bash
+tkt mcp                        # default role: implementer
+tkt mcp --role architect       # start session as architect
+tkt mcp --readonly             # expose read-only tools only (no session required)
+```
+
+### Tools
+
+The server exposes 24 tools covering the full tkt surface: creating and advancing tickets, writing plans, managing context entries, documents, roles, token logging, and board queries. All tools respect the same role and session isolation rules as the CLI.
 
 ## License
 

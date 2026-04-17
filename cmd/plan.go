@@ -65,7 +65,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)
 	}
 
-	planBody, err := readPlanBody(cmd)
+	planBody, err := readBodyFlags(cmd, "plan")
 	if err != nil {
 		return err
 	}
@@ -135,12 +135,13 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	return nil
 }
 
-// readPlanBody reads plan content from whichever of --body, --stdin, or --file was supplied.
+// readBodyFlags reads content from whichever of --body, --stdin, or --file was supplied.
+// prefix is used in error messages (e.g. "plan", "doc add").
 // Returns ("", nil) when no flag is set — caller should fall through to $EDITOR.
-func readPlanBody(cmd *cobra.Command) (string, error) {
+func readBodyFlags(cmd *cobra.Command, prefix string) (string, error) {
 	body, err := cmd.Flags().GetString("body")
 	if err != nil {
-		return "", fmt.Errorf("plan: get --body flag: %w", err)
+		return "", fmt.Errorf("%s: get --body flag: %w", prefix, err)
 	}
 	if body = strings.TrimSpace(body); body != "" {
 		return body, nil
@@ -148,32 +149,32 @@ func readPlanBody(cmd *cobra.Command) (string, error) {
 
 	useStdin, err := cmd.Flags().GetBool("stdin")
 	if err != nil {
-		return "", fmt.Errorf("plan: get --stdin flag: %w", err)
+		return "", fmt.Errorf("%s: get --stdin flag: %w", prefix, err)
 	}
 	if useStdin {
 		raw, err := io.ReadAll(cmd.InOrStdin())
 		if err != nil {
-			return "", fmt.Errorf("plan: read stdin: %w", err)
+			return "", fmt.Errorf("%s: read stdin: %w", prefix, err)
 		}
 		body = strings.TrimSpace(string(raw))
 		if body == "" {
-			return "", fmt.Errorf("plan: body is empty")
+			return "", fmt.Errorf("%s: body is empty", prefix)
 		}
 		return body, nil
 	}
 
 	filePath, err := cmd.Flags().GetString("file")
 	if err != nil {
-		return "", fmt.Errorf("plan: get --file flag: %w", err)
+		return "", fmt.Errorf("%s: get --file flag: %w", prefix, err)
 	}
 	if filePath != "" {
 		raw, err := os.ReadFile(filePath)
 		if err != nil {
-			return "", fmt.Errorf("plan: read file: %w", err)
+			return "", fmt.Errorf("%s: read file: %w", prefix, err)
 		}
 		body = strings.TrimSpace(string(raw))
 		if body == "" {
-			return "", fmt.Errorf("plan: body is empty")
+			return "", fmt.Errorf("%s: body is empty", prefix)
 		}
 		return body, nil
 	}

@@ -88,6 +88,17 @@ func runInit(cmd *cobra.Command, args []string) error {
 		fmt.Fprintf(cmd.OutOrStdout(), "Added .tkt/ to .gitignore\n")
 	}
 
+	fmt.Fprintf(cmd.OutOrStdout(), `
+To enable MCP (works with any MCP-compatible LLM CLI or agent):
+
+  command: tkt
+  args:    ["mcp"]
+  transport: stdio
+
+Add this to your LLM tool's MCP server config.
+Run 'tkt mcp --help' for options (role, readonly mode).
+`)
+
 	return nil
 }
 

@@ -7,6 +7,7 @@ tkt
 .ia_temp/
 agents/
 .claude/
+.mcp.json
 .ia_docs/
 *.deb
 *.png
