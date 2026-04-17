@@ -52,6 +52,12 @@ var docArchiveCmd = &cobra.Command{
 
 func init() {
 	docListCmd.Flags().BoolVar(&docListArchived, "archived", false, "list archived documents")
+	docAddCmd.Flags().String("body", "", "document content for non-interactive use (skips $EDITOR when set)")
+	docAddCmd.Flags().Bool("stdin", false, "read document content from stdin")
+	docAddCmd.Flags().String("file", "", "read document content from file at path")
+	docAddCmd.MarkFlagsMutuallyExclusive("body", "stdin")
+	docAddCmd.MarkFlagsMutuallyExclusive("body", "file")
+	docAddCmd.MarkFlagsMutuallyExclusive("stdin", "file")
 	docCmd.AddCommand(docListCmd, docAddCmd, docReadCmd, docArchiveCmd)
 	rootCmd.AddCommand(docCmd)
 }
@@ -125,11 +131,31 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("doc add: load session: %w", err)
 	}
 
+	// Hoist — both paths need these before writing.
+	if err := os.MkdirAll(docs.DocsDir(root), 0o755); err != nil {
+		return fmt.Errorf("doc add: mkdir: %w", err)
+	}
 	id, err := docs.NextDocID(root)
 	if err != nil {
 		return fmt.Errorf("doc add: next id: %w", err)
 	}
 
+	// Non-interactive path.
+	content, err := readBodyFlags(cmd, "doc add")
+	if err != nil {
+		return err
+	}
+	if content != "" {
+		filename := id + "-" + slug + ".md"
+		dest := filepath.Join(docs.DocsDir(root), filename)
+		if err := os.WriteFile(dest, []byte(content), 0o644); err != nil {
+			return fmt.Errorf("doc add: write: %w", err)
+		}
+		fmt.Fprintf(cmd.OutOrStdout(), "created docs/%s\n", filename)
+		return nil
+	}
+
+	// Interactive path.
 	template := fmt.Sprintf("# %s — \n\n**Type:** analysis | plan | post-mortem | summary | design\n**Date:** %s\n**By:** %s\n\n---\n\n(body)\n", id, time.Now().Format("2006-01-02"), string(sess.Role))
 
 	tmp, err := os.CreateTemp("", "tkt-doc-*.md")
@@ -159,23 +185,19 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("doc add: editor: %w", err)
 	}
 
-	content, err := os.ReadFile(tmpPath)
+	fileContent, err := os.ReadFile(tmpPath)
 	if err != nil {
 		return fmt.Errorf("doc add: read temp file: %w", err)
 	}
 
-	if string(content) == template {
+	if string(fileContent) == template {
 		fmt.Fprintln(cmd.OutOrStdout(), "No changes made.")
 		return nil
 	}
 
-	if err := os.MkdirAll(docs.DocsDir(root), 0o755); err != nil {
-		return fmt.Errorf("doc add: mkdir: %w", err)
-	}
-
 	filename := id + "-" + slug + ".md"
 	dest := filepath.Join(docs.DocsDir(root), filename)
-	if err := os.WriteFile(dest, content, 0o644); err != nil {
+	if err := os.WriteFile(dest, fileContent, 0o644); err != nil {
 		return fmt.Errorf("doc add: write file: %w", err)
 	}
 
