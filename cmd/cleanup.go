@@ -40,9 +40,9 @@ func runCleanup(cmd *cobra.Command, args []string) error {
 	case n == 0:
 		fmt.Fprintln(cmd.OutOrStdout(), "Nothing to clean up.")
 	case cleanupDryRun:
-		fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] Would expire %d stale session(s) (last active > 48h ago).\n", n)
+		fmt.Fprintf(cmd.OutOrStdout(), "[dry-run] Would expire %d stale session(s) (last active > 4h ago).\n", n)
 	default:
-		fmt.Fprintf(cmd.OutOrStdout(), "Expired %d stale session(s) (last active > 48h ago).\n", n)
+		fmt.Fprintf(cmd.OutOrStdout(), "Expired %d stale session(s) (last active > 4h ago).\n", n)
 	}
 	return nil
 }
