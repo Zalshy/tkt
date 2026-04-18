@@ -11,6 +11,10 @@ agents/
 .ia_docs/
 *.deb
 *.png
+!assets/*.png
+!assets/*.gif
 demo.tape
 demo.png/
+monitor.tape
 .local_md/
+.screenshots/

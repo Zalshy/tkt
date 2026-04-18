@@ -36,14 +36,20 @@ type ListResult struct {
 }
 
 // Create inserts a new ticket and returns the fully-populated Ticket.
-func Create(title, description, tier string, actor *models.Session, db *sql.DB) (*models.Ticket, error) {
+func Create(title, description, tier string, actor *models.Session, db *sql.DB, mainType string, attentionLevel int) (*models.Ticket, error) {
 	if tier != "critical" && tier != "standard" && tier != "low" {
 		return nil, fmt.Errorf("ticket.Create: invalid tier %q: must be critical, standard, or low", tier)
 	}
+	if len(mainType) > 30 {
+		return nil, fmt.Errorf("main_type exceeds 30 character limit")
+	}
+	if attentionLevel < 0 || attentionLevel > 99 {
+		return nil, fmt.Errorf("ticket.Create: attention_level must be in [0, 99]")
+	}
 	result, err := db.Exec(
-		`INSERT INTO tickets (title, description, status, tier, created_by)
-		 VALUES (?, ?, 'TODO', ?, ?)`,
-		title, description, tier, actor.ID,
+		`INSERT INTO tickets (title, description, status, tier, created_by, main_type, attention_level)
+		 VALUES (?, ?, 'TODO', ?, ?, ?, ?)`,
+		title, description, tier, actor.ID, mainType, attentionLevel,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ticket.Create: insert: %w", err)
@@ -70,11 +76,11 @@ func GetByID(id string, db *sql.DB) (*models.Ticket, error) {
 	var deletedAt sql.NullTime
 
 	err = db.QueryRow(
-		`SELECT id, title, description, status, tier, created_by, created_at, updated_at, deleted_at
+		`SELECT id, title, description, status, tier, main_type, attention_level, created_by, created_at, updated_at, deleted_at
 		 FROM tickets WHERE id = ? AND deleted_at IS NULL`,
 		n,
 	).Scan(
-		&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier,
+		&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier, &t.MainType, &t.AttentionLevel,
 		&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
 	)
 	if err != nil {
@@ -164,7 +170,7 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 	}
 
 	// Build query string.
-	query := "SELECT t.id, t.title, t.description, t.status, t.tier, t.created_by, t.created_at, t.updated_at, t.deleted_at FROM tickets t"
+	query := "SELECT t.id, t.title, t.description, t.status, t.tier, t.main_type, t.attention_level, t.created_by, t.created_at, t.updated_at, t.deleted_at FROM tickets t"
 	if len(where) > 0 {
 		query += " WHERE " + strings.Join(where, " AND ")
 	}
@@ -192,7 +198,7 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 		var t models.Ticket
 		var deletedAt sql.NullTime
 		if err := rows.Scan(
-			&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier,
+			&t.ID, &t.Title, &t.Description, &t.Status, &t.Tier, &t.MainType, &t.AttentionLevel,
 			&t.CreatedBy, &t.CreatedAt, &t.UpdatedAt, &deletedAt,
 		); err != nil {
 			return ListResult{}, fmt.Errorf("ticket.List: scan: %w", err)
@@ -489,6 +495,55 @@ func SetTier(id string, newTier string, db *sql.DB) (*models.Ticket, error) {
 	}
 
 	return GetByID(id, db)
+}
+
+// Update sets main_type and/or attention_level on an existing ticket.
+// At least one of mainType or attentionLevel must be non-nil.
+// Returns ErrNotFound if the ticket does not exist or has been soft-deleted.
+func Update(id string, mainType *string, attentionLevel *int, db *sql.DB) (*models.Ticket, error) {
+	if mainType == nil && attentionLevel == nil {
+		return nil, fmt.Errorf("ticket.Update: nothing to update")
+	}
+	if mainType != nil && len(*mainType) > 30 {
+		return nil, fmt.Errorf("main_type exceeds 30 character limit")
+	}
+	if attentionLevel != nil && (*attentionLevel < 0 || *attentionLevel > 99) {
+		return nil, fmt.Errorf("ticket.Update: attention_level must be in [0, 99]")
+	}
+
+	stripped := strings.TrimPrefix(id, "#")
+	n, err := strconv.Atoi(stripped)
+	if err != nil {
+		return nil, fmt.Errorf("%w: %q is not a valid ticket id", ErrNotFound, id)
+	}
+
+	var setClauses []string
+	var args []any
+	if mainType != nil {
+		setClauses = append(setClauses, "main_type = ?")
+		args = append(args, *mainType)
+	}
+	if attentionLevel != nil {
+		setClauses = append(setClauses, "attention_level = ?")
+		args = append(args, *attentionLevel)
+	}
+	setClauses = append(setClauses, "updated_at = datetime('now')")
+	args = append(args, n)
+
+	query := "UPDATE tickets SET " + strings.Join(setClauses, ", ") + " WHERE id = ? AND deleted_at IS NULL"
+	result, err := db.Exec(query, args...)
+	if err != nil {
+		return nil, fmt.Errorf("ticket.Update: exec: %w", err)
+	}
+	affected, err := result.RowsAffected()
+	if err != nil {
+		return nil, fmt.Errorf("ticket.Update: rows affected: %w", err)
+	}
+	if affected == 0 {
+		return nil, fmt.Errorf("%w: ticket #%d not found", ErrNotFound, n)
+	}
+
+	return GetByID(stripped, db)
 }
 
 // ptr returns a pointer to a time.Time value (helper for nullable scan).
