@@ -39,13 +39,13 @@ func TestMigration_FreshDB(t *testing.T) {
 		t.Errorf("ticket_dependencies table not found in sqlite_master: %v", err)
 	}
 
-	// Assert schema_version = 13.
+	// Assert schema_version = 14.
 	var version int
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 }
 
@@ -70,13 +70,13 @@ func TestMigration_V2ToV3(t *testing.T) {
 	}
 	defer db2.Close()
 
-	// Assert schema_version = 13.
+	// Assert schema_version = 14.
 	var version int
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -103,8 +103,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 13 {
-		t.Errorf("schema_version after first Open = %d, want 13", v1)
+	if v1 != 14 {
+		t.Errorf("schema_version after first Open = %d, want 14", v1)
 	}
 	db1.Close()
 
@@ -118,8 +118,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 13 {
-		t.Errorf("schema_version after second Open = %d, want 13", v2)
+	if v2 != 14 {
+		t.Errorf("schema_version after second Open = %d, want 14", v2)
 	}
 }
 
@@ -128,13 +128,13 @@ func TestMigration_Idempotency(t *testing.T) {
 func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	_, database := setupDBWithRoot(t)
 
-	// Assert schema_version = 13.
+	// Assert schema_version = 14.
 	var version int
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// Assert exactly 3 rows in roles (architect, implementer, monitor).
@@ -246,8 +246,8 @@ func TestMigration_V7_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	var name string
@@ -363,6 +363,15 @@ func TestMigration_V7_Backfill(t *testing.T) {
 		t.Fatalf("insert ticket_log usage row 2: %v", err)
 	}
 
+	// Drop V14 columns so V14 re-runs cleanly on next Open.
+	for _, stmt := range []string{
+		`ALTER TABLE tickets DROP COLUMN main_type`,
+		`ALTER TABLE tickets DROP COLUMN attention_level`,
+	} {
+		if _, err := db1.Exec(stmt); err != nil {
+			t.Fatalf("drop V14 column %q: %v", stmt, err)
+		}
+	}
 	if _, err := db1.Exec(`UPDATE schema_version SET version = 7`); err != nil {
 		t.Fatalf("downgrade schema_version: %v", err)
 	}
@@ -379,8 +388,8 @@ func TestMigration_V7_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	var count int
@@ -501,6 +510,15 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	// Drop V14 columns so V14 re-runs cleanly on next Open.
+	for _, stmt := range []string{
+		`ALTER TABLE tickets DROP COLUMN main_type`,
+		`ALTER TABLE tickets DROP COLUMN attention_level`,
+	} {
+		if _, err := db1.Exec(stmt); err != nil {
+			t.Fatalf("drop V14 column %q: %v", stmt, err)
+		}
+	}
 	if _, err := db1.Exec(`UPDATE schema_version SET version = 8`); err != nil {
 		t.Fatalf("downgrade schema_version: %v", err)
 	}
@@ -534,8 +552,8 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// Assert all usage rows were deleted (V8) and are absent from the final ticket_log.
@@ -612,8 +630,8 @@ func TestMigration_V9_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// V10 renamed ticket_log_new to ticket_log — the _new table must not exist.
@@ -720,6 +738,15 @@ func TestMigration_V9_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	// Drop V14 columns so V14 re-runs cleanly on next Open.
+	for _, stmt := range []string{
+		`ALTER TABLE tickets DROP COLUMN main_type`,
+		`ALTER TABLE tickets DROP COLUMN attention_level`,
+	} {
+		if _, err := db1.Exec(stmt); err != nil {
+			t.Fatalf("drop V14 column %q: %v", stmt, err)
+		}
+	}
 	if _, err := db1.Exec(`UPDATE schema_version SET version = 9`); err != nil {
 		t.Fatalf("downgrade schema_version: %v", err)
 	}
@@ -752,8 +779,8 @@ func TestMigration_V9_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// After V10, ticket_log_new must not exist.
@@ -936,8 +963,8 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// Assert ticket_log_new does NOT exist (V10 renamed it to ticket_log).
@@ -1074,6 +1101,15 @@ func TestMigration_V11_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	// Drop V14 columns so V14 re-runs cleanly on next Open.
+	for _, stmt := range []string{
+		`ALTER TABLE tickets DROP COLUMN main_type`,
+		`ALTER TABLE tickets DROP COLUMN attention_level`,
+	} {
+		if _, err := db1.Exec(stmt); err != nil {
+			t.Fatalf("drop V14 column %q: %v", stmt, err)
+		}
+	}
 	if _, err := db1.Exec(`UPDATE schema_version SET version = 11`); err != nil {
 		t.Fatalf("downgrade schema_version: %v", err)
 	}
@@ -1090,8 +1126,8 @@ func TestMigration_V11_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// After V12, ticket_dependencies_new is gone (renamed to ticket_dependencies).
@@ -1182,8 +1218,8 @@ func TestMigration_V12_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// ticket_dependencies_new must NOT exist after V12 (renamed to ticket_dependencies).
@@ -1315,12 +1351,21 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	); err != nil {
 		t.Fatalf("insert dep into ticket_dependencies_new: %v", err)
 	}
+	// Drop V14 columns so V14 re-runs cleanly on next Open.
+	for _, stmt := range []string{
+		`ALTER TABLE tickets DROP COLUMN main_type`,
+		`ALTER TABLE tickets DROP COLUMN attention_level`,
+	} {
+		if _, err := db1.Exec(stmt); err != nil {
+			t.Fatalf("drop V14 column %q: %v", stmt, err)
+		}
+	}
 	if _, err := db1.Exec(`UPDATE schema_version SET version = 12`); err != nil {
 		t.Fatalf("downgrade schema_version: %v", err)
 	}
 	db1.Close()
 
-	// Re-open — triggers V13.
+	// Re-open — triggers V13 and V14.
 	db2, err := Open(root)
 	if err != nil {
 		t.Fatalf("second Open (V12 migration): %v", err)
@@ -1331,8 +1376,8 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 13 {
-		t.Errorf("schema_version = %d, want 13", version)
+	if version != 14 {
+		t.Errorf("schema_version = %d, want 14", version)
 	}
 
 	// ticket_dependencies_new must NOT exist.

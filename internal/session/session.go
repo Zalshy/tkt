@@ -232,13 +232,16 @@ func ExpireByID(id string, db *sql.DB) error {
 }
 
 // isPKConstraintError reports whether err is a SQLite PRIMARY KEY / UNIQUE constraint violation.
+// SQLite returns extended error codes (e.g. SQLITE_CONSTRAINT_PRIMARYKEY = 1555,
+// SQLITE_CONSTRAINT_UNIQUE = 2067) — mask the upper bits to compare against the
+// base SQLITE_CONSTRAINT code (19).
 func isPKConstraintError(err error) bool {
 	if err == nil {
 		return false
 	}
 	var sqliteErr *sqlite3.Error
 	if errors.As(err, &sqliteErr) {
-		return sqliteErr.Code() == sqlite3lib.SQLITE_CONSTRAINT
+		return sqliteErr.Code()&0xFF == sqlite3lib.SQLITE_CONSTRAINT
 	}
 	return false
 }
