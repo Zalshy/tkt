@@ -216,6 +216,11 @@ WHERE kind = 'usage'
 		`ALTER TABLE ticket_dependencies_new RENAME TO ticket_dependencies`,
 		createIndexTicketDependsDependsOn,
 	},
+	// V14 — add main_type and attention_level columns to tickets.
+	{
+		`ALTER TABLE tickets ADD COLUMN main_type TEXT NOT NULL DEFAULT ''`,
+		`ALTER TABLE tickets ADD COLUMN attention_level INTEGER NOT NULL DEFAULT 0`,
+	},
 }
 
 // verifyV8Backfill asserts that the number of rows inserted into ticket_usage

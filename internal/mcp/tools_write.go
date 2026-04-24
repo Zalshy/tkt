@@ -24,6 +24,8 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithString("title", mcplib.Required(), mcplib.Description("Ticket title")),
 			mcplib.WithString("tier", mcplib.Description("Tier: critical, standard, or low (default: standard)")),
 			mcplib.WithString("after", mcplib.Description("Comma-separated dependency ticket IDs (e.g. 5,7)")),
+			mcplib.WithString("main_type", mcplib.Description("Ticket type label (optional, max 30 chars, e.g. feature, bugfix, refactor)")),
+			mcplib.WithNumber("attention_level", mcplib.Description("Attention level 0–99 (optional; 0 = unset)")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			title := req.GetString("title", "")
@@ -35,7 +37,9 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				tier = "standard"
 			}
 
-			t, err := ticket.Create(title, "", tier, sess, db)
+			mainType := req.GetString("main_type", "")
+			attentionLevel := req.GetInt("attention_level", 0)
+			t, err := ticket.Create(title, "", tier, sess, db, mainType, attentionLevel)
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
@@ -395,6 +399,44 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			}
 
 			return mcplib.NewToolResultText(fmt.Sprintf("#%d  logged %s — %s", t.ID, strings.Join(parts, ", "), agent)), nil
+		},
+	)
+
+	// tkt_update_ticket
+	s.AddTool(
+		mcplib.NewTool("tkt_update_ticket",
+			mcplib.WithDescription("Update main_type or attention_level of an existing ticket. At least one field required."),
+			mcplib.WithString("id", mcplib.Required(), mcplib.Description("Ticket ID")),
+			mcplib.WithString("main_type", mcplib.Description("New type label (optional, max 30 chars)")),
+			mcplib.WithNumber("attention", mcplib.Description("New attention level 0–99 (optional)")),
+		),
+		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			id := req.GetString("id", "")
+			if id == "" {
+				return mcplib.NewToolResultError("id is required"), nil
+			}
+
+			rawType := req.GetString("main_type", "")
+			var mainType *string
+			if rawType != "" {
+				mainType = &rawType
+			}
+
+			rawAttn := req.GetInt("attention", -1)
+			var attentionLevel *int
+			if rawAttn >= 0 {
+				attentionLevel = &rawAttn
+			}
+
+			if mainType == nil && attentionLevel == nil {
+				return mcplib.NewToolResultError("at least one of main_type or attention must be provided"), nil
+			}
+
+			t, err := ticket.Update(id, mainType, attentionLevel, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+			return mcplib.NewToolResultText(fmt.Sprintf("#%d updated — type=%q attention=%d", t.ID, t.MainType, t.AttentionLevel)), nil
 		},
 	)
 

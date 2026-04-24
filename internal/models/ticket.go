@@ -21,8 +21,10 @@ type Ticket struct {
 	Title       string
 	Description string
 	Status      Status
-	Tier        string // "critical", "standard", "low"
-	CreatedBy   string
+	Tier           string // "critical", "standard", "low"
+	MainType       string
+	AttentionLevel int
+	CreatedBy      string
 	CreatedAt   time.Time
 	UpdatedAt   time.Time
 	DeletedAt   *time.Time

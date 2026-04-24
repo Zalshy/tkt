@@ -62,7 +62,7 @@ func TestCreate_Roundtrip(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk, err := Create("My title", "My description", "standard", actor, sqlDB)
+	tk, err := Create("My title", "My description", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -90,7 +90,7 @@ func TestGetByID_BothFormats(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	created, err := Create("Test", "", "standard", actor, sqlDB)
+	created, err := Create("Test", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -127,7 +127,7 @@ func TestList_HasMoreFlag(t *testing.T) {
 	actor := makeActor()
 
 	for i := 0; i < 11; i++ {
-		if _, err := Create("ticket", "", "standard", actor, sqlDB); err != nil {
+		if _, err := Create("ticket", "", "standard", actor, sqlDB, "", 0); err != nil {
 			t.Fatalf("Create: %v", err)
 		}
 	}
@@ -148,11 +148,11 @@ func TestList_SoftDeleteFilter(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk1, err := Create("live ticket", "", "standard", actor, sqlDB)
+	tk1, err := Create("live ticket", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create tk1: %v", err)
 	}
-	tk2, err := Create("deleted ticket", "", "standard", actor, sqlDB)
+	tk2, err := Create("deleted ticket", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create tk2: %v", err)
 	}
@@ -180,15 +180,15 @@ func TestGetDependencies_MultiLevel(t *testing.T) {
 	actor := makeActor()
 
 	// Create A, B, C where C depends on B and B depends on A.
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", "standard", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -222,15 +222,15 @@ func TestGetDependents_MultiLevel(t *testing.T) {
 	actor := makeActor()
 
 	// Create A, B, C where C depends on B and B depends on A.
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", "standard", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -263,11 +263,11 @@ func TestIsReady_BlockedAndUnblocked(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	x, err := Create("X", "", "standard", actor, sqlDB)
+	x, err := Create("X", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create X: %v", err)
 	}
-	y, err := Create("Y", "", "standard", actor, sqlDB)
+	y, err := Create("Y", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create Y: %v", err)
 	}
@@ -298,15 +298,15 @@ func TestList_Ready(t *testing.T) {
 	actor := makeActor()
 
 	// P has no deps, Q depends on P (TODO), R has no deps.
-	p, err := Create("P", "", "standard", actor, sqlDB)
+	p, err := Create("P", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create P: %v", err)
 	}
-	q, err := Create("Q", "", "standard", actor, sqlDB)
+	q, err := Create("Q", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create Q: %v", err)
 	}
-	r, err := Create("R", "", "standard", actor, sqlDB)
+	r, err := Create("R", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create R: %v", err)
 	}
@@ -358,11 +358,11 @@ func TestGetDependencies_SoftDeletedExcluded(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -389,7 +389,7 @@ func TestIsReady_NoDependencies(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	tk, err := Create("no deps", "", "standard", actor, sqlDB)
+	tk, err := Create("no deps", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
@@ -407,11 +407,11 @@ func TestAddDependencies_Single(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -436,15 +436,15 @@ func TestAddDependencies_Multiple(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
-	c, err := Create("C", "", "standard", actor, sqlDB)
+	c, err := Create("C", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create C: %v", err)
 	}
@@ -468,11 +468,11 @@ func TestAddDependencies_Idempotent(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -500,7 +500,7 @@ func TestAddDependencies_SelfDep(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
@@ -518,11 +518,11 @@ func TestAddDependencies_CycleDetected(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -558,11 +558,11 @@ func TestRemoveDependency_HappyPath(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -589,11 +589,11 @@ func TestRemoveDependency_EdgeNotFound(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()
 
-	a, err := Create("A", "", "standard", actor, sqlDB)
+	a, err := Create("A", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create A: %v", err)
 	}
-	b, err := Create("B", "", "standard", actor, sqlDB)
+	b, err := Create("B", "", "standard", actor, sqlDB, "", 0)
 	if err != nil {
 		t.Fatalf("Create B: %v", err)
 	}
@@ -602,6 +602,191 @@ func TestRemoveDependency_EdgeNotFound(t *testing.T) {
 	err = RemoveDependency(b.ID, a.ID, sqlDB)
 	if err == nil {
 		t.Fatal("expected ErrNotFound for non-existent edge, got nil")
+	}
+	if !errors.Is(err, ErrNotFound) {
+		t.Errorf("expected ErrNotFound, got: %v", err)
+	}
+}
+
+// helpers for pointer params
+func ptrStr(s string) *string { return &s }
+func ptrInt(n int) *int       { return &n }
+
+func TestCreate_MainTypeTooLong(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	longType := strings.Repeat("x", 31)
+	_, err := Create("title", "", "standard", actor, sqlDB, longType, 0)
+	if err == nil {
+		t.Fatal("expected error for main_type > 30 chars, got nil")
+	}
+	if !strings.Contains(err.Error(), "main_type exceeds 30 character limit") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestCreate_AttentionLevelOutOfRange(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	_, err := Create("title", "", "standard", actor, sqlDB, "", -1)
+	if err == nil {
+		t.Fatal("expected error for attention_level=-1, got nil")
+	}
+
+	_, err = Create("title", "", "standard", actor, sqlDB, "", 100)
+	if err == nil {
+		t.Fatal("expected error for attention_level=100, got nil")
+	}
+}
+
+func TestCreate_FieldsRoundtrip(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "bugfix", 42)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	got, err := GetByID(fmt.Sprintf("%d", tk.ID), sqlDB)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.MainType != "bugfix" {
+		t.Errorf("MainType = %q, want %q", got.MainType, "bugfix")
+	}
+	if got.AttentionLevel != 42 {
+		t.Errorf("AttentionLevel = %d, want 42", got.AttentionLevel)
+	}
+}
+
+func TestUpdate_MainTypeOnly(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := Update(fmt.Sprintf("%d", tk.ID), ptrStr("bugfix"), nil, sqlDB)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.MainType != "bugfix" {
+		t.Errorf("MainType = %q, want %q", updated.MainType, "bugfix")
+	}
+	if updated.AttentionLevel != 0 {
+		t.Errorf("AttentionLevel = %d, want 0 (unchanged)", updated.AttentionLevel)
+	}
+}
+
+func TestUpdate_AttentionLevelOnly(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "feature", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := Update(fmt.Sprintf("%d", tk.ID), nil, ptrInt(50), sqlDB)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.AttentionLevel != 50 {
+		t.Errorf("AttentionLevel = %d, want 50", updated.AttentionLevel)
+	}
+	if updated.MainType != "feature" {
+		t.Errorf("MainType = %q, want %q (unchanged)", updated.MainType, "feature")
+	}
+}
+
+func TestUpdate_BothFields(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	updated, err := Update(fmt.Sprintf("%d", tk.ID), ptrStr("hotfix"), ptrInt(99), sqlDB)
+	if err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	if updated.MainType != "hotfix" {
+		t.Errorf("MainType = %q, want %q", updated.MainType, "hotfix")
+	}
+	if updated.AttentionLevel != 99 {
+		t.Errorf("AttentionLevel = %d, want 99", updated.AttentionLevel)
+	}
+}
+
+func TestUpdate_NothingToUpdate(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = Update(fmt.Sprintf("%d", tk.ID), nil, nil, sqlDB)
+	if err == nil {
+		t.Fatal("expected error for nothing to update, got nil")
+	}
+	if !strings.Contains(err.Error(), "nothing to update") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdate_MainTypeTooLong(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	longType := strings.Repeat("x", 31)
+	_, err = Update(fmt.Sprintf("%d", tk.ID), ptrStr(longType), nil, sqlDB)
+	if err == nil {
+		t.Fatal("expected error for main_type > 30 chars, got nil")
+	}
+	if !strings.Contains(err.Error(), "main_type exceeds 30 character limit") {
+		t.Errorf("unexpected error: %v", err)
+	}
+}
+
+func TestUpdate_AttentionLevelOutOfRange(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = Update(fmt.Sprintf("%d", tk.ID), nil, ptrInt(-1), sqlDB)
+	if err == nil {
+		t.Fatal("expected error for attention_level=-1, got nil")
+	}
+
+	_, err = Update(fmt.Sprintf("%d", tk.ID), nil, ptrInt(100), sqlDB)
+	if err == nil {
+		t.Fatal("expected error for attention_level=100, got nil")
+	}
+}
+
+func TestUpdate_NotFound(t *testing.T) {
+	_, sqlDB := setupDB(t)
+
+	_, err := Update("99999", ptrStr("x"), nil, sqlDB)
+	if err == nil {
+		t.Fatal("expected ErrNotFound, got nil")
 	}
 	if !errors.Is(err, ErrNotFound) {
 		t.Errorf("expected ErrNotFound, got: %v", err)
