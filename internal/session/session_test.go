@@ -37,12 +37,11 @@ func setupDB(t *testing.T) (root string) {
 }
 
 // ---------------------------------------------------------------------------
-// GenerateID tests (updated for new signature: GenerateID(name string))
+// GenerateName / GenerateULID tests
 // ---------------------------------------------------------------------------
 
-// TestGenerateID_RandomWord verifies that GenerateID("") returns a word from the wordlist.
-func TestGenerateID_RandomWord(t *testing.T) {
-	id := GenerateID("")
+func TestGenerateName_RandomWord(t *testing.T) {
+	id := GenerateName("")
 	found := false
 	for _, w := range wordlist {
 		if id == w {
@@ -51,30 +50,33 @@ func TestGenerateID_RandomWord(t *testing.T) {
 		}
 	}
 	if !found {
-		t.Errorf("GenerateID(\"\") = %q, not found in wordlist", id)
+		t.Errorf("GenerateName(\"\") = %q, not found in wordlist", id)
 	}
 }
 
-// TestGenerateID_RandomUnique verifies that repeated calls usually produce different words.
-// With 30 words in the pool the probability of 10 consecutive collisions is negligible.
-func TestGenerateID_RandomUnique(t *testing.T) {
+func TestGenerateName_RandomUnique(t *testing.T) {
 	seen := make(map[string]bool)
 	const calls = 30
 	for i := 0; i < calls; i++ {
-		seen[GenerateID("")] = true
+		seen[GenerateName("")] = true
 	}
 	if len(seen) < 2 {
-		t.Errorf("GenerateID produced only 1 distinct value in %d calls — wordlist or RNG broken", calls)
+		t.Errorf("GenerateName produced only 1 distinct value in %d calls — wordlist or RNG broken", calls)
 	}
 }
 
-// TestGenerateID_NamePassthrough verifies that a non-empty name is returned unchanged.
-func TestGenerateID_NamePassthrough(t *testing.T) {
+func TestGenerateName_NamePassthrough(t *testing.T) {
 	for _, name := range []string{"oak", "my-session", "foo123", "ab"} {
-		got := GenerateID(name)
+		got := GenerateName(name)
 		if got != name {
-			t.Errorf("GenerateID(%q) = %q, want %q", name, got, name)
+			t.Errorf("GenerateName(%q) = %q, want %q", name, got, name)
 		}
+	}
+}
+
+func TestGenerateULID_NonEmpty(t *testing.T) {
+	if got := GenerateULID(); len(got) != 26 {
+		t.Fatalf("GenerateULID() len = %d, want 26", len(got))
 	}
 }
 
@@ -124,9 +126,7 @@ func TestValidateName_Invalid(t *testing.T) {
 // Create tests (updated: Create now takes an extra name string param)
 // ---------------------------------------------------------------------------
 
-// TestCreate_CustomArchitectRole_IDIsWord verifies that a session created with a custom
-// architect role gets an ID from the wordlist (not the old arch-prefix format).
-func TestCreate_CustomArchitectRole_IDIsWord(t *testing.T) {
+func TestCreate_CustomArchitectRole_IDIsULID(t *testing.T) {
 	root := setupDB(t)
 	sqlDB, err := db.Open(root)
 	if err != nil {
@@ -144,14 +144,16 @@ func TestCreate_CustomArchitectRole_IDIsWord(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	// ID must be a word from the wordlist (or word + hex suffix on extreme collision).
-	// At minimum it must not be the old arch-prefixed format.
+	// New IDs are ULIDs; session names stay human-readable.
 	if strings.HasPrefix(s.ID, "arch-") || strings.HasPrefix(s.ID, "impl-") {
 		t.Errorf("Create with security_expert: ID = %q still uses old role-prefix format", s.ID)
 	}
+	if len(s.ID) != 26 {
+		t.Errorf("Create with security_expert: ID len = %d, want 26", len(s.ID))
+	}
 }
 
-// TestCreate_WithName verifies that passing a name uses it as the session ID.
+// TestCreate_WithName verifies that passing a name uses it as the session name.
 func TestCreate_WithName(t *testing.T) {
 	root := setupDB(t)
 	sqlDB, err := db.Open(root)
@@ -164,16 +166,16 @@ func TestCreate_WithName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if s.ID != "my-session" {
-		t.Errorf("Create with name: ID = %q, want %q", s.ID, "my-session")
+	if s.ID == "my-session" {
+		t.Errorf("Create with name: ID should be ULID, got %q", s.ID)
 	}
 	if s.Name != "my-session" {
 		t.Errorf("Create with name: Name = %q, want %q", s.Name, "my-session")
 	}
 }
 
-// TestCreate_NameEqualsID verifies that s.Name always equals s.ID (the final resolved ID).
-func TestCreate_NameEqualsID(t *testing.T) {
+// TestCreate_NameDiffersFromID verifies that generated names are separate from ULID ids.
+func TestCreate_NameDiffersFromID(t *testing.T) {
 	root := setupDB(t)
 	sqlDB, err := db.Open(root)
 	if err != nil {
@@ -185,8 +187,8 @@ func TestCreate_NameEqualsID(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if s.Name != s.ID {
-		t.Errorf("s.Name = %q, s.ID = %q — must be equal", s.Name, s.ID)
+	if s.Name == s.ID {
+		t.Errorf("s.Name = %q, s.ID = %q — should differ after ULID split", s.Name, s.ID)
 	}
 }
 

@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	mcpserver "github.com/mark3labs/mcp-go/server"
@@ -140,6 +141,53 @@ func seedTicket(t *testing.T, root string, title string, status models.Status) s
 	return fmt.Sprintf("%d", id)
 }
 
+func seedStatsMCPData(t *testing.T, root string) {
+	t.Helper()
+	database, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("seedStatsMCPData: open db: %v", err)
+	}
+	defer database.Close()
+
+	base := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	if _, err := database.Exec(
+		`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
+		 VALUES ('stats todo', '', 'TODO', 'standard', 'feature', 'mcp-test', ?, ?)`,
+		base,
+		base,
+	); err != nil {
+		t.Fatalf("seedStatsMCPData: insert todo: %v", err)
+	}
+
+	res, err := database.Exec(
+		`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
+		 VALUES ('stats done', '', 'DONE', 'critical', 'feature', 'mcp-test', ?, ?)`,
+		base.AddDate(0, 0, 1),
+		base.AddDate(0, 0, 1),
+	)
+	if err != nil {
+		t.Fatalf("seedStatsMCPData: insert done: %v", err)
+	}
+	doneID, _ := res.LastInsertId()
+
+	if _, err := database.Exec(
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, created_at)
+		 VALUES (?, 'mcp-test', 'transition', 'done', 'IN_PROGRESS', 'DONE', ?)`,
+		doneID,
+		base.AddDate(0, 0, 2),
+	); err != nil {
+		t.Fatalf("seedStatsMCPData: insert transition: %v", err)
+	}
+	if _, err := database.Exec(
+		`INSERT INTO ticket_usage (ticket_id, session_name, tokens, tools, duration_ms, agent, label, created_at)
+		 VALUES (?, 'mcp-test', 100, 1, 1000, 'implementer', 'mcp', ?)`,
+		doneID,
+		base.AddDate(0, 0, 2),
+	); err != nil {
+		t.Fatalf("seedStatsMCPData: insert usage: %v", err)
+	}
+}
+
 // ---- read tools -------------------------------------------------------------
 
 func TestListTickets_Empty(t *testing.T) {
@@ -231,6 +279,39 @@ func TestBatch_Empty(t *testing.T) {
 	res := callTool(t, s, "tkt_batch", nil)
 	assertOK(t, res, "batch empty")
 	assertContains(t, res, "No active tickets", "empty batch message")
+}
+
+func TestStats_Happy(t *testing.T) {
+	root, s := setup(t)
+	seedStatsMCPData(t, root)
+
+	res := callTool(t, s, "tkt_stats", map[string]any{"verified": true})
+	assertOK(t, res, "stats happy")
+	for _, section := range []string{"Overview", "Cycle Time", "Throughput", "Resource Burn", "Distribution"} {
+		assertContains(t, res, section, "stats section "+section)
+	}
+	assertContains(t, res, "Total: 2", "stats total")
+}
+
+func TestStats_Filters(t *testing.T) {
+	root, s := setup(t)
+	seedStatsMCPData(t, root)
+
+	res := callTool(t, s, "tkt_stats", map[string]any{"status": "DONE"})
+	assertOK(t, res, "stats status filter")
+	assertContains(t, res, "Done: 1", "done count")
+
+	res = callTool(t, s, "tkt_stats", map[string]any{"tier": "critical"})
+	assertOK(t, res, "stats tier filter")
+	assertContains(t, res, "Total: 1", "critical total")
+}
+
+func TestStats_InvalidArgs(t *testing.T) {
+	_, s := setup(t)
+
+	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"status": "NOPE"}), "invalid status")
+	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"since": "2026/04/01"}), "invalid since")
+	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"since": "2026-04-02", "until": "2026-04-01"}), "invalid range")
 }
 
 func TestBatch_WithTickets(t *testing.T) {
@@ -889,6 +970,7 @@ func TestReadonly_ReadToolsPresent(t *testing.T) {
 		"tkt_show_ticket",
 		"tkt_search_tickets",
 		"tkt_batch",
+		"tkt_stats",
 		"tkt_list_context",
 		"tkt_list_docs",
 		"tkt_read_doc",

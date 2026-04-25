@@ -33,11 +33,15 @@ func mustSeedDB(t *testing.T, database *sql.DB) *models.Session {
 	if err != nil {
 		t.Fatalf("insert session: %v", err)
 	}
+	_, err = database.Exec(`UPDATE sessions SET name = 'test-sess' WHERE id = 'test-sess'`)
+	if err != nil {
+		t.Fatalf("insert session: %v", err)
+	}
 	_, err = database.Exec(`INSERT INTO tickets (id, title, created_by) VALUES (1, 'test ticket', 'test-sess')`)
 	if err != nil {
 		t.Fatalf("insert ticket: %v", err)
 	}
-	return &models.Session{ID: "test-sess"}
+	return &models.Session{ID: "test-sess", Name: "test-sess"}
 }
 
 func TestAppend_Roundtrip(t *testing.T) {
@@ -63,8 +67,8 @@ func TestAppend_Roundtrip(t *testing.T) {
 	if e.Body != "hello" {
 		t.Errorf("Body: want %q, got %q", "hello", e.Body)
 	}
-	if e.SessionID != "test-sess" {
-		t.Errorf("SessionID: want %q, got %q", "test-sess", e.SessionID)
+	if e.SessionName != "test-sess" {
+		t.Errorf("SessionName: want %q, got %q", "test-sess", e.SessionName)
 	}
 	if e.CreatedAt.IsZero() {
 		t.Error("CreatedAt must not be zero")

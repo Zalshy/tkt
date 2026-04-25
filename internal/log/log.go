@@ -45,11 +45,11 @@ func Append(ctx context.Context, ticketID int64, kind, body string, fromState, t
 		}
 	}
 
-	const q = `INSERT INTO ticket_log (ticket_id, session_id, kind, body, from_state, to_state)
+	const q = `INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state)
 VALUES (?, ?, ?, ?, ?, ?)`
 
 	if _, err := db.ExecContext(ctx, q,
-		ticketID, actor.ID, kind, body, fromState, toState,
+		ticketID, actor.Name, kind, body, fromState, toState,
 	); err != nil {
 		return fmt.Errorf("log.Append: insert: %w", err)
 	}
@@ -65,7 +65,7 @@ func GetAll(ctx context.Context, ticketID string, db *sql.DB) ([]models.LogEntry
 		return nil, err
 	}
 
-	const q = `SELECT id, ticket_id, session_id, kind, body, from_state, to_state, created_at, deleted_at
+	const q = `SELECT id, ticket_id, session_name, kind, body, from_state, to_state, created_at, deleted_at
 FROM ticket_log
 WHERE ticket_id = ? AND deleted_at IS NULL
 ORDER BY created_at ASC`
@@ -100,7 +100,7 @@ func LatestPlan(ctx context.Context, ticketID string, db *sql.DB) (*models.LogEn
 		return nil, err
 	}
 
-	const q = `SELECT id, ticket_id, session_id, kind, body, from_state, to_state, created_at, deleted_at
+	const q = `SELECT id, ticket_id, session_name, kind, body, from_state, to_state, created_at, deleted_at
 FROM ticket_log
 WHERE ticket_id = ? AND kind = 'plan' AND deleted_at IS NULL
 ORDER BY created_at DESC, id DESC
@@ -134,7 +134,7 @@ func scanLogEntry(s scanner) (models.LogEntry, error) {
 	if err := s.Scan(
 		&entry.ID,
 		&entry.TicketID,
-		&entry.SessionID,
+		&entry.SessionName,
 		&entry.Kind,
 		&entry.Body,
 		&fromStr,

@@ -87,7 +87,7 @@ func ValidateTransition(
 		allowedStr := strings.Join(roleStrs, "/")
 		violations = append(violations, fmt.Sprintf(
 			"transition %s → %s requires role '%s'\nCurrent session %s has role '%s' (effective: '%s')",
-			from, to, allowedStr, actor.ID, actor.Role, actor.EffectiveRole,
+			from, to, allowedStr, actor.Name, actor.Role, actor.EffectiveRole,
 		))
 	}
 
@@ -98,10 +98,10 @@ func ValidateTransition(
 				"transition %s → %s requires a different session than the one that submitted\nSubmitted by: (unknown)  (cannot verify)",
 				from, to,
 			))
-		} else if actor.ID == submitter.ID {
+		} else if actor.Name == submitter.Name {
 			violations = append(violations, fmt.Sprintf(
 				"transition %s → %s requires a different session than the one that submitted\nSubmitted by: %s  (you)",
-				from, to, submitter.ID,
+				from, to, submitter.Name,
 			))
 		}
 	}

@@ -89,3 +89,57 @@ const createTableTicketDependenciesNew = `CREATE TABLE ticket_dependencies_new (
 )`
 
 const createIndexTicketDependenciesNewDependsOn = `CREATE INDEX idx_ticket_dependencies_new_depends_on ON ticket_dependencies_new(depends_on)`
+
+const createIndexProjectContextDeletedAt = `CREATE INDEX idx_project_context_deleted_at ON project_context(deleted_at)`
+
+const createTableSessionsNew = `
+CREATE TABLE sessions_new (
+    id          TEXT PRIMARY KEY,
+    role        TEXT NOT NULL,
+    name        TEXT NOT NULL UNIQUE,
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now')),
+    last_active DATETIME NOT NULL DEFAULT (datetime('now')),
+    expired_at  DATETIME NULL
+)`
+
+const createTableTicketLogV16 = `
+CREATE TABLE ticket_log_new (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id    INTEGER NOT NULL REFERENCES tickets(id),
+    session_name TEXT    NOT NULL,
+    kind         TEXT    NOT NULL CHECK (kind IN ('transition', 'plan', 'message')),
+    body         TEXT    NOT NULL,
+    from_state   TEXT,
+    to_state     TEXT,
+    created_at   DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at   DATETIME NULL
+)`
+
+const createTableTicketUsageV17 = `
+CREATE TABLE ticket_usage_new (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id    INTEGER NOT NULL REFERENCES tickets(id),
+    session_name TEXT    NOT NULL,
+    tokens       INTEGER NOT NULL,
+    tools        INTEGER NOT NULL DEFAULT 0,
+    duration_ms  INTEGER NOT NULL DEFAULT 0,
+    agent        TEXT    NOT NULL DEFAULT '',
+    label        TEXT    NOT NULL DEFAULT '',
+    created_at   DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at   DATETIME NULL
+)`
+
+const createIndexTicketUsageNewTicketIDDeletedAt = `CREATE INDEX idx_ticket_usage_new_ticket_id_deleted_at ON ticket_usage_new(ticket_id, deleted_at)`
+
+const createTableProjectContextV18 = `
+CREATE TABLE project_context_new (
+    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+    title        TEXT NOT NULL,
+    body         TEXT NOT NULL,
+    session_name TEXT NOT NULL,
+    created_at   DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at   DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at   DATETIME NULL
+)`
+
+const createIndexProjectContextNewDeletedAt = `CREATE INDEX idx_project_context_new_deleted_at ON project_context_new(deleted_at)`

@@ -24,8 +24,8 @@ func Add(title, body string, actor *models.Session, db *sql.DB) (*models.Context
 	}
 
 	result, err := db.Exec(
-		`INSERT INTO project_context (title, body, session_id) VALUES (?, ?, ?)`,
-		title, body, actor.ID,
+		`INSERT INTO project_context (title, body, session_name) VALUES (?, ?, ?)`,
+		title, body, actor.Name,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("context.Add: insert: %w", err)
@@ -43,7 +43,7 @@ func Add(title, body string, actor *models.Session, db *sql.DB) (*models.Context
 // Returns a non-nil empty slice if no entries exist.
 func ReadAll(db *sql.DB) ([]models.Context, error) {
 	rows, err := db.Query(
-		`SELECT id, title, body, session_id, created_at, updated_at, deleted_at
+		`SELECT id, title, body, session_name, created_at, updated_at, deleted_at
 		 FROM project_context
 		 WHERE deleted_at IS NULL
 		 ORDER BY id ASC`,
@@ -83,7 +83,7 @@ func Read(id int, db *sql.DB) (*models.Context, error) {
 	var deletedAt sql.NullTime
 
 	err := db.QueryRow(
-		`SELECT id, title, body, session_id, created_at, updated_at, deleted_at
+		`SELECT id, title, body, session_name, created_at, updated_at, deleted_at
 		 FROM project_context
 		 WHERE id = ? AND deleted_at IS NULL`,
 		id,
@@ -106,9 +106,10 @@ func Read(id int, db *sql.DB) (*models.Context, error) {
 	return &c, nil
 }
 
-// Update replaces the title and body of a context entry and records the acting session.
+// Update replaces the title and body of a context entry.
 // Returns an error if title or body is empty, or if the entry does not exist.
 func Update(id int, title, body string, actor *models.Session, db *sql.DB) error {
+	_ = actor
 	if strings.TrimSpace(title) == "" {
 		return fmt.Errorf("context.Update: title must not be empty")
 	}

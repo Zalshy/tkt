@@ -125,7 +125,7 @@ func TestRenderTicket_TransitionEntry(t *testing.T) {
 	from := models.StatusTodo
 	to := models.StatusPlanning
 	entries := []models.LogEntry{
-		{Kind: "transition", SessionID: "impl-bob", Body: "picking this up", FromState: &from, ToState: &to},
+		{Kind: "transition", SessionName: "impl-bob", Body: "picking this up", FromState: &from, ToState: &to},
 	}
 	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "↳ TODO → PLANNING") {
@@ -146,7 +146,7 @@ func TestRenderTicket_TransitionEntry(t *testing.T) {
 
 func TestRenderTicket_PlanEntry(t *testing.T) {
 	entries := []models.LogEntry{
-		{Kind: "plan", SessionID: "impl-bob", Body: "## Approach\nUse a single sessions table."},
+		{Kind: "plan", SessionName: "impl-bob", Body: "## Approach\nUse a single sessions table."},
 	}
 	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "[plan]") {
@@ -169,7 +169,7 @@ func TestRenderTicket_PlanEntry(t *testing.T) {
 
 func TestRenderTicket_MessageEntry(t *testing.T) {
 	entries := []models.LogEntry{
-		{Kind: "message", SessionID: "impl-bob", Body: "this is a message entry"},
+		{Kind: "message", SessionName: "impl-bob", Body: "this is a message entry"},
 	}
 	result := stripANSI(RenderTicket(models.Ticket{ID: 1, Title: "T", CreatedBy: "arch"}, entries, nil))
 	if !strings.Contains(result, "this is a message entry") {
@@ -187,8 +187,8 @@ func TestRenderTicket_MessageEntry(t *testing.T) {
 
 func TestRenderTicket_Footer(t *testing.T) {
 	entries := []models.LogEntry{
-		{Kind: "message", SessionID: "impl-bob", Body: "first", CreatedAt: time.Now().Add(-3 * time.Hour)},
-		{Kind: "message", SessionID: "impl-carol", Body: "second", CreatedAt: time.Now().Add(-2 * time.Hour)},
+		{Kind: "message", SessionName: "impl-bob", Body: "first", CreatedAt: time.Now().Add(-3 * time.Hour)},
+		{Kind: "message", SessionName: "impl-carol", Body: "second", CreatedAt: time.Now().Add(-2 * time.Hour)},
 	}
 	ticket := models.Ticket{ID: 1, Title: "T", CreatedBy: "arch-alice"}
 	result := stripANSI(RenderTicket(ticket, entries, nil))
@@ -271,8 +271,8 @@ func TestRenderDependencies_AllVerified(t *testing.T) {
 func TestRenderTicket_ColumnAlignment(t *testing.T) {
 	// "a-very-long-session-id" is 22 chars — widest ID, sets maxWidth
 	entries := []models.LogEntry{
-		{Kind: "message", SessionID: "impl-bob", Body: "short"},              // 8 chars
-		{Kind: "message", SessionID: "a-very-long-session-id", Body: "long"}, // 22 chars
+		{Kind: "message", SessionName: "impl-bob", Body: "short"},              // 8 chars
+		{Kind: "message", SessionName: "a-very-long-session-id", Body: "long"}, // 22 chars
 	}
 	// t.CreatedBy "arch-alice" is 10 chars
 	ticket := models.Ticket{ID: 1, Title: "T", CreatedBy: "arch-alice"}

@@ -63,8 +63,8 @@ func TestUsageAppend_InsertAndRead(t *testing.T) {
 	if u.TicketID != ticketID {
 		t.Errorf("TicketID = %d, want %d", u.TicketID, ticketID)
 	}
-	if u.SessionID != "sess-abc" {
-		t.Errorf("SessionID = %q, want %q", u.SessionID, "sess-abc")
+	if u.SessionName != "sess-abc" {
+		t.Errorf("SessionName = %q, want %q", u.SessionName, "sess-abc")
 	}
 	if u.Tokens != 1234 {
 		t.Errorf("Tokens = %d, want 1234", u.Tokens)

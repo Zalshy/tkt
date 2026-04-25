@@ -25,12 +25,12 @@ func makeLogs(n int) []models.LogEntry {
 	entries := make([]models.LogEntry, n)
 	for i := range entries {
 		entries[i] = models.LogEntry{
-			ID:        int64(i + 1),
-			TicketID:  1,
-			SessionID: "test-session",
-			Kind:      "message",
-			Body:      strings.Repeat("log entry content line ", 5) + time.Now().String(),
-			CreatedAt: time.Now(),
+			ID:          int64(i + 1),
+			TicketID:    1,
+			SessionName: "test-session",
+			Kind:        "message",
+			Body:        strings.Repeat("log entry content line ", 5) + time.Now().String(),
+			CreatedAt:   time.Now(),
 		}
 	}
 	return entries

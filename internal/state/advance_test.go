@@ -43,7 +43,7 @@ func insertSession(t *testing.T, database *sql.DB, id string, role models.Role) 
 	if err != nil {
 		t.Fatalf("insert session %q: %v", id, err)
 	}
-	return &models.Session{ID: id, Role: role, EffectiveRole: role}
+	return &models.Session{ID: id, Name: id, Role: role, EffectiveRole: role}
 }
 
 // insertTicket inserts a ticket row with the given status and returns its string ID.
@@ -112,8 +112,8 @@ func TestExecute_HappyPath(t *testing.T) {
 	if e.Kind != "transition" {
 		t.Errorf("Kind = %q, want %q", e.Kind, "transition")
 	}
-	if e.SessionID != actor.ID {
-		t.Errorf("SessionID = %q, want %q", e.SessionID, actor.ID)
+	if e.SessionName != actor.Name {
+		t.Errorf("SessionName = %q, want %q", e.SessionName, actor.Name)
 	}
 	if e.Body != "picking up" {
 		t.Errorf("Body = %q, want %q", e.Body, "picking up")

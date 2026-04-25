@@ -1,0 +1,117 @@
+package cmd
+
+import (
+	"fmt"
+	"time"
+
+	"github.com/spf13/cobra"
+	"github.com/zalshy/tkt/internal/db"
+	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/output"
+	statsPkg "github.com/zalshy/tkt/internal/stats"
+)
+
+var (
+	statsSince           string
+	statsUntil           string
+	statsStatus          string
+	statsTier            string
+	statsType            string
+	statsCreatedBy       string
+	statsIncludeVerified bool
+	statsIncludeArchived bool
+)
+
+var statsCmd = &cobra.Command{
+	Use:   "stats",
+	Short: "Show project statistics",
+	Args:  cobra.NoArgs,
+	RunE:  runStats,
+}
+
+func init() {
+	statsCmd.Flags().StringVar(&statsSince, "since", "", "include tickets created on or after YYYY-MM-DD")
+	statsCmd.Flags().StringVar(&statsUntil, "until", "", "include tickets created on or before YYYY-MM-DD")
+	statsCmd.Flags().StringVar(&statsStatus, "status", "", "filter by status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED)")
+	statsCmd.Flags().StringVar(&statsTier, "tier", "", "filter by tier (critical, standard, low)")
+	statsCmd.Flags().StringVar(&statsType, "type", "", "filter by main type")
+	statsCmd.Flags().StringVar(&statsCreatedBy, "created-by", "", "filter by creator session name")
+	statsCmd.Flags().BoolVar(&statsIncludeVerified, "verified", false, "include VERIFIED tickets")
+	statsCmd.Flags().BoolVar(&statsIncludeArchived, "archived", false, "include ARCHIVED tickets")
+	rootCmd.AddCommand(statsCmd)
+}
+
+func runStats(cmd *cobra.Command, args []string) error {
+	opts, err := statsOptionsFromFlags()
+	if err != nil {
+		return err
+	}
+
+	root, err := requireRoot()
+	if err != nil {
+		return err
+	}
+
+	database, err := db.Open(root)
+	if err != nil {
+		return fmt.Errorf("stats: open db: %w", err)
+	}
+	defer database.Close()
+
+	report, err := statsPkg.Compute(database, opts)
+	if err != nil {
+		return fmt.Errorf("stats: compute: %w", err)
+	}
+
+	fmt.Fprint(cmd.OutOrStdout(), output.RenderStats(report))
+	return nil
+}
+
+func statsOptionsFromFlags() (statsPkg.Options, error) {
+	opts := statsPkg.Options{
+		Tier:            statsTier,
+		Type:            statsType,
+		CreatedBy:       statsCreatedBy,
+		IncludeVerified: statsIncludeVerified,
+		IncludeArchived: statsIncludeArchived,
+	}
+
+	if statsSince != "" {
+		since, err := parseStatsDate(statsSince)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("stats: invalid --since %q: use YYYY-MM-DD", statsSince)
+		}
+		opts.Since = &since
+	}
+
+	if statsUntil != "" {
+		until, err := parseStatsDate(statsUntil)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("stats: invalid --until %q: use YYYY-MM-DD", statsUntil)
+		}
+		until = until.Add(24*time.Hour - time.Nanosecond)
+		opts.Until = &until
+	}
+
+	if opts.Since != nil && opts.Until != nil && opts.Since.After(*opts.Until) {
+		return statsPkg.Options{}, fmt.Errorf("stats: --since must be before or equal to --until")
+	}
+
+	if statsStatus != "" {
+		if !validStatuses[statsStatus] {
+			return statsPkg.Options{}, fmt.Errorf("stats: invalid --status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED", statsStatus)
+		}
+		status := models.Status(statsStatus)
+		opts.Status = &status
+	}
+
+	if statsTier != "" && statsTier != "critical" && statsTier != "standard" && statsTier != "low" {
+		return statsPkg.Options{}, fmt.Errorf("stats: invalid --tier %q: must be critical, standard, or low", statsTier)
+	}
+
+	return opts, nil
+}
+
+func parseStatsDate(value string) (time.Time, error) {
+	return time.ParseInLocation("2006-01-02", value, time.UTC)
+}

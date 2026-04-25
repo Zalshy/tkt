@@ -92,7 +92,7 @@ func runSessionCreate(cmd *cobra.Command) error {
 		return fmt.Errorf("session: create: %w", err)
 	}
 
-	fmt.Fprintf(cmd.OutOrStdout(), "Session created: %s\nRole: %s\n", s.ID, s.Role)
+	fmt.Fprintf(cmd.OutOrStdout(), "Session created: %s\nName: %s\nRole: %s\n", s.ID, s.Name, s.Role)
 	return nil
 }
 
@@ -148,7 +148,7 @@ func runSessionShow(cmd *cobra.Command) error {
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
 			// LoadActive returns nil for the session on expiry, so re-read the file
-			// to get the session ID for the error message.
+			// to get the stored ULID for the error message.
 			data, readErr := os.ReadFile(project.SessionFile(root))
 			id := "unknown"
 			if readErr == nil {
@@ -162,6 +162,7 @@ func runSessionShow(cmd *cobra.Command) error {
 	// Column-align all labels to 13 chars (including the colon) so values line up at column 15.
 	out := cmd.OutOrStdout()
 	fmt.Fprintf(out, "%-13s %s\n", "Session:", s.ID)
+	fmt.Fprintf(out, "%-13s %s\n", "Name:", s.Name)
 	fmt.Fprintf(out, "%-13s %s\n", "Role:", string(s.Role))
 	fmt.Fprintf(out, "%-13s %s\n", "Status:", "active")
 	fmt.Fprintf(out, "%-13s %s\n", "Active since:", s.CreatedAt.Format("2006-01-02 15:04:05"))

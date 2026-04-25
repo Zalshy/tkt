@@ -386,7 +386,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
-			if err := usage.Append(ctx, t.ID, sess.ID, tokens, tools, durationSecs*1000, agent, label, db); err != nil {
+			if err := usage.Append(ctx, t.ID, sess.Name, tokens, tools, durationSecs*1000, agent, label, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 

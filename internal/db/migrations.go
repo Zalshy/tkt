@@ -221,6 +221,75 @@ WHERE kind = 'usage'
 		`ALTER TABLE tickets ADD COLUMN main_type TEXT NOT NULL DEFAULT ''`,
 		`ALTER TABLE tickets ADD COLUMN attention_level INTEGER NOT NULL DEFAULT 0`,
 	},
+	// V15 — rebuild ticket_log: session_id -> session_name and remove FK.
+	{
+		`CREATE TEMP TABLE verify_v16_counts AS SELECT COUNT(*) AS source_count FROM ticket_log`,
+		createTableTicketLogV16,
+		createIndexTicketLogNewTicketID,
+		createIndexTicketLogNewKind,
+		createIndexTicketLogNewDeletedAt,
+		createIndexTicketLogNewTicketIDKind,
+		`INSERT INTO ticket_log_new
+         (id, ticket_id, session_name, kind, body, from_state, to_state, created_at, deleted_at)
+     SELECT
+          id, ticket_id, session_id, kind, body, from_state, to_state, created_at, deleted_at
+     FROM ticket_log`,
+		`DROP INDEX idx_ticket_log_new_ticket_id`,
+		`DROP INDEX idx_ticket_log_new_kind`,
+		`DROP INDEX idx_ticket_log_new_deleted_at`,
+		`DROP INDEX idx_ticket_log_new_ticket_id_kind`,
+		`DROP INDEX idx_ticket_log_ticket_id`,
+		`DROP INDEX idx_ticket_log_kind`,
+		`DROP INDEX idx_ticket_log_deleted_at`,
+		`DROP INDEX idx_ticket_log_ticket_id_kind`,
+		`DROP TABLE ticket_log`,
+		`ALTER TABLE ticket_log_new RENAME TO ticket_log`,
+		createIndexTicketLogTicketID,
+		createIndexTicketLogKind,
+		createIndexTicketLogDeletedAt,
+		createIndexTicketLogTicketIDKind,
+	},
+	// V16 — rebuild sessions with UNIQUE name while preserving existing TEXT ids.
+	{
+		createTableSessionsNew,
+		`INSERT INTO sessions_new SELECT id, role, name, created_at, last_active, expired_at FROM sessions`,
+		`DROP INDEX idx_sessions_expired_at`,
+		`DROP TABLE sessions`,
+		`ALTER TABLE sessions_new RENAME TO sessions`,
+		createIndexSessionsExpiredAt,
+	},
+	// V17 — rebuild ticket_usage: session_id -> session_name.
+	{
+		`CREATE TEMP TABLE verify_v17_counts AS SELECT COUNT(*) AS source_count FROM ticket_usage`,
+		createTableTicketUsageV17,
+		createIndexTicketUsageNewTicketIDDeletedAt,
+		`INSERT INTO ticket_usage_new
+         (id, ticket_id, session_name, tokens, tools, duration_ms, agent, label, created_at, deleted_at)
+     SELECT
+          id, ticket_id, session_id, tokens, tools, duration_ms, agent, label, created_at, deleted_at
+     FROM ticket_usage`,
+		`DROP INDEX idx_ticket_usage_new_ticket_id_deleted_at`,
+		`DROP INDEX idx_ticket_usage_ticket_id_deleted_at`,
+		`DROP TABLE ticket_usage`,
+		`ALTER TABLE ticket_usage_new RENAME TO ticket_usage`,
+		createIndexTicketUsageTicketIDDeletedAt,
+	},
+	// V18 — rebuild project_context: session_id -> session_name.
+	{
+		`CREATE TEMP TABLE verify_v18_counts AS SELECT COUNT(*) AS source_count FROM project_context`,
+		createTableProjectContextV18,
+		createIndexProjectContextNewDeletedAt,
+		`INSERT INTO project_context_new
+         (id, title, body, session_name, created_at, updated_at, deleted_at)
+     SELECT
+          id, title, body, session_id, created_at, updated_at, deleted_at
+     FROM project_context`,
+		`DROP INDEX idx_project_context_new_deleted_at`,
+		`DROP INDEX idx_project_context_deleted_at`,
+		`DROP TABLE project_context`,
+		`ALTER TABLE project_context_new RENAME TO project_context`,
+		createIndexProjectContextDeletedAt,
+	},
 }
 
 // verifyV8Backfill asserts that the number of rows inserted into ticket_usage
@@ -295,6 +364,48 @@ func verifyV12Backfill(tx *sql.Tx) error {
 	return nil
 }
 
+func verifyV16Backfill(tx *sql.Tx) error {
+	var sourceCount, newCount int
+	if err := tx.QueryRow(`SELECT source_count FROM verify_v16_counts`).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V16 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM ticket_log`).Scan(&newCount); err != nil {
+		return fmt.Errorf("migrate: V16 verify: new count: %w", err)
+	}
+	if newCount != sourceCount {
+		return fmt.Errorf("migrate: V16 backfill count mismatch: source=%d new=%d", sourceCount, newCount)
+	}
+	return nil
+}
+
+func verifyV17Backfill(tx *sql.Tx) error {
+	var sourceCount, newCount int
+	if err := tx.QueryRow(`SELECT source_count FROM verify_v17_counts`).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V17 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM ticket_usage`).Scan(&newCount); err != nil {
+		return fmt.Errorf("migrate: V17 verify: new count: %w", err)
+	}
+	if newCount != sourceCount {
+		return fmt.Errorf("migrate: V17 backfill count mismatch: source=%d new=%d", sourceCount, newCount)
+	}
+	return nil
+}
+
+func verifyV18Backfill(tx *sql.Tx) error {
+	var sourceCount, newCount int
+	if err := tx.QueryRow(`SELECT source_count FROM verify_v18_counts`).Scan(&sourceCount); err != nil {
+		return fmt.Errorf("migrate: V18 verify: source count: %w", err)
+	}
+	if err := tx.QueryRow(`SELECT COUNT(*) FROM project_context`).Scan(&newCount); err != nil {
+		return fmt.Errorf("migrate: V18 verify: new count: %w", err)
+	}
+	if newCount != sourceCount {
+		return fmt.Errorf("migrate: V18 backfill count mismatch: source=%d new=%d", sourceCount, newCount)
+	}
+	return nil
+}
+
 // migrate ensures the schema_version table exists, then applies any
 // migrations whose version number exceeds the current stored version.
 // It is only called from Open and is not exported.
@@ -355,6 +466,27 @@ func migrate(db *sql.DB) error {
 
 		if targetVersion == 12 {
 			if err := verifyV12Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		if targetVersion == 15 {
+			if err := verifyV16Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		if targetVersion == 17 {
+			if err := verifyV17Backfill(tx); err != nil {
+				_ = tx.Rollback()
+				return err
+			}
+		}
+
+		if targetVersion == 18 {
+			if err := verifyV18Backfill(tx); err != nil {
 				_ = tx.Rollback()
 				return err
 			}

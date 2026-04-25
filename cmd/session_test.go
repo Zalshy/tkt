@@ -299,7 +299,7 @@ func TestSession_EndNoSession(t *testing.T) {
 	}
 }
 
-// TestSession_CreateWithName verifies --role architect --name foo uses "foo" as session ID.
+// TestSession_CreateWithName verifies --role architect --name foo uses "foo" as session name.
 func TestSession_CreateWithName(t *testing.T) {
 	dir := t.TempDir()
 	if err := runInitInDir(t, dir); err != nil {
@@ -322,8 +322,18 @@ func TestSession_CreateWithName(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read session file: %v", err)
 	}
-	if strings.TrimSpace(string(data)) != "my-session" {
-		t.Errorf("session file = %q, want 'my-session'", strings.TrimSpace(string(data)))
+	id := strings.TrimSpace(string(data))
+	if id == "my-session" {
+		t.Errorf("session file = %q, want ULID not session name", id)
+	}
+
+	database := openProjectDB(t, dir)
+	var name string
+	if err := database.QueryRow(`SELECT name FROM sessions WHERE id = ?`, id).Scan(&name); err != nil {
+		t.Fatalf("query session name: %v", err)
+	}
+	if name != "my-session" {
+		t.Errorf("session name = %q, want 'my-session'", name)
 	}
 }
 

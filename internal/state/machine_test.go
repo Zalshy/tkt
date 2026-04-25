@@ -10,7 +10,7 @@ import (
 // helper builds a session with a given ID and role.
 // For built-in roles (architect, implementer), EffectiveRole equals Role.
 func sess(id string, role models.Role) *models.Session {
-	return &models.Session{ID: id, Role: role, EffectiveRole: role}
+	return &models.Session{ID: id, Name: id, Role: role, EffectiveRole: role}
 }
 
 func TestValidateTransition_AllValid(t *testing.T) {
