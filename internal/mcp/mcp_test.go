@@ -149,12 +149,13 @@ func seedStatsMCPData(t *testing.T, root string) {
 	}
 	defer database.Close()
 
-	base := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	createdBase := time.Now().UTC().Add(-72 * time.Hour)
+	activityBase := time.Now().UTC().Add(-2 * time.Hour)
 	if _, err := database.Exec(
 		`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
 		 VALUES ('stats todo', '', 'TODO', 'standard', 'feature', 'mcp-test', ?, ?)`,
-		base,
-		base,
+		createdBase,
+		activityBase,
 	); err != nil {
 		t.Fatalf("seedStatsMCPData: insert todo: %v", err)
 	}
@@ -162,8 +163,8 @@ func seedStatsMCPData(t *testing.T, root string) {
 	res, err := database.Exec(
 		`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
 		 VALUES ('stats done', '', 'DONE', 'critical', 'feature', 'mcp-test', ?, ?)`,
-		base.AddDate(0, 0, 1),
-		base.AddDate(0, 0, 1),
+		createdBase.Add(time.Hour),
+		activityBase.Add(time.Hour),
 	)
 	if err != nil {
 		t.Fatalf("seedStatsMCPData: insert done: %v", err)
@@ -174,7 +175,7 @@ func seedStatsMCPData(t *testing.T, root string) {
 		`INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, created_at)
 		 VALUES (?, 'mcp-test', 'transition', 'done', 'IN_PROGRESS', 'DONE', ?)`,
 		doneID,
-		base.AddDate(0, 0, 2),
+		activityBase.Add(time.Hour),
 	); err != nil {
 		t.Fatalf("seedStatsMCPData: insert transition: %v", err)
 	}
@@ -182,7 +183,7 @@ func seedStatsMCPData(t *testing.T, root string) {
 		`INSERT INTO ticket_usage (ticket_id, session_name, tokens, tools, duration_ms, agent, label, created_at)
 		 VALUES (?, 'mcp-test', 100, 1, 1000, 'implementer', 'mcp', ?)`,
 		doneID,
-		base.AddDate(0, 0, 2),
+		activityBase.Add(time.Hour),
 	); err != nil {
 		t.Fatalf("seedStatsMCPData: insert usage: %v", err)
 	}
@@ -285,8 +286,9 @@ func TestStats_Happy(t *testing.T) {
 	root, s := setup(t)
 	seedStatsMCPData(t, root)
 
-	res := callTool(t, s, "tkt_stats", map[string]any{"verified": true})
+	res := callTool(t, s, "tkt_stats", nil)
 	assertOK(t, res, "stats happy")
+	assertContains(t, res, "Scope: default last 24 hours, all ticket types and statuses", "default stats scope")
 	for _, section := range []string{"Overview", "Cycle Time", "Throughput", "Resource Burn", "Distribution"} {
 		assertContains(t, res, section, "stats section "+section)
 	}

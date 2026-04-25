@@ -30,8 +30,8 @@ var statsCmd = &cobra.Command{
 }
 
 func init() {
-	statsCmd.Flags().StringVar(&statsSince, "since", "", "include tickets created on or after YYYY-MM-DD")
-	statsCmd.Flags().StringVar(&statsUntil, "until", "", "include tickets created on or before YYYY-MM-DD")
+	statsCmd.Flags().StringVar(&statsSince, "since", "", "include ticket activity on or after YYYY-MM-DD")
+	statsCmd.Flags().StringVar(&statsUntil, "until", "", "include ticket activity on or before YYYY-MM-DD")
 	statsCmd.Flags().StringVar(&statsStatus, "status", "", "filter by status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED)")
 	statsCmd.Flags().StringVar(&statsTier, "tier", "", "filter by tier (critical, standard, low)")
 	statsCmd.Flags().StringVar(&statsType, "type", "", "filter by main type")
@@ -63,17 +63,27 @@ func runStats(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("stats: compute: %w", err)
 	}
 
-	fmt.Fprint(cmd.OutOrStdout(), output.RenderStats(report))
+	out := cmd.OutOrStdout()
+	if statsDefaultScopeActive() {
+		fmt.Fprintln(out, "Scope: default last 24 hours, all ticket types and statuses")
+		fmt.Fprintln(out)
+	}
+	fmt.Fprint(out, output.RenderStats(report))
 	return nil
 }
 
 func statsOptionsFromFlags() (statsPkg.Options, error) {
+	defaultScope := statsDefaultScopeActive()
 	opts := statsPkg.Options{
 		Tier:            statsTier,
 		Type:            statsType,
 		CreatedBy:       statsCreatedBy,
-		IncludeVerified: statsIncludeVerified,
-		IncludeArchived: statsIncludeArchived,
+		IncludeVerified: statsIncludeVerified || defaultScope,
+		IncludeArchived: statsIncludeArchived || defaultScope,
+	}
+	if defaultScope {
+		since := time.Now().Add(-24 * time.Hour)
+		opts.Since = &since
 	}
 
 	if statsSince != "" {
@@ -114,4 +124,15 @@ func statsOptionsFromFlags() (statsPkg.Options, error) {
 
 func parseStatsDate(value string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02", value, time.UTC)
+}
+
+func statsDefaultScopeActive() bool {
+	return statsSince == "" &&
+		statsUntil == "" &&
+		statsStatus == "" &&
+		statsTier == "" &&
+		statsType == "" &&
+		statsCreatedBy == "" &&
+		!statsIncludeVerified &&
+		!statsIncludeArchived
 }

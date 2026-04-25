@@ -134,14 +134,9 @@ func filterArgs(opts Options) ([]string, []any) {
 		where = append(where, "t.status != 'ARCHIVED'")
 	}
 
-	if opts.Since != nil {
-		where = append(where, "t.created_at >= ?")
-		args = append(args, *opts.Since)
-	}
-
-	if opts.Until != nil {
-		where = append(where, "t.created_at <= ?")
-		args = append(args, *opts.Until)
+	if activityWhere, activityArgs := ticketActivityWhere(opts); activityWhere != "" {
+		where = append(where, activityWhere)
+		args = append(args, activityArgs...)
 	}
 
 	if opts.Tier != "" {
@@ -160,6 +155,43 @@ func filterArgs(opts Options) ([]string, []any) {
 	}
 
 	return where, args
+}
+
+func ticketActivityWhere(opts Options) (string, []any) {
+	if opts.Since == nil && opts.Until == nil {
+		return "", nil
+	}
+
+	var clauses []string
+	var args []any
+
+	updatedWhere, updatedArgs := timeRangeWhere("t.updated_at", opts)
+	clauses = append(clauses, updatedWhere)
+	args = append(args, updatedArgs...)
+
+	logWhere, logArgs := timeRangeWhere("al.created_at", opts)
+	clauses = append(clauses, "EXISTS (SELECT 1 FROM ticket_log al WHERE al.ticket_id = t.id AND al.deleted_at IS NULL AND "+logWhere+")")
+	args = append(args, logArgs...)
+
+	usageWhere, usageArgs := timeRangeWhere("au.created_at", opts)
+	clauses = append(clauses, "EXISTS (SELECT 1 FROM ticket_usage au WHERE au.ticket_id = t.id AND au.deleted_at IS NULL AND "+usageWhere+")")
+	args = append(args, usageArgs...)
+
+	return "(" + strings.Join(clauses, " OR ") + ")", args
+}
+
+func timeRangeWhere(column string, opts Options) (string, []any) {
+	var clauses []string
+	var args []any
+	if opts.Since != nil {
+		clauses = append(clauses, column+" >= ?")
+		args = append(args, *opts.Since)
+	}
+	if opts.Until != nil {
+		clauses = append(clauses, column+" <= ?")
+		args = append(args, *opts.Until)
+	}
+	return "(" + strings.Join(clauses, " AND ") + ")", args
 }
 
 func mean(values []float64) float64 {
@@ -301,7 +333,12 @@ func queryTransitionSummary(db *sql.DB, opts Options, toState models.Status) (Du
 
 func queryTransitionDurations(db *sql.DB, opts Options, toState models.Status) ([]transitionDurationRow, error) {
 	where, args := filterArgs(opts)
-	args = append(args, string(toState))
+	transitionWhere := []string{"tl.deleted_at IS NULL", "tl.kind = 'transition'", "tl.to_state = ?"}
+	transitionArgs := []any{string(toState)}
+	if rangeWhere, rangeArgs := timeRangeWhere("tl.created_at", opts); opts.Since != nil || opts.Until != nil {
+		transitionWhere = append(transitionWhere, rangeWhere)
+		transitionArgs = append(transitionArgs, rangeArgs...)
+	}
 
 	query := `
 SELECT
@@ -315,11 +352,11 @@ FROM (
 JOIN (
 	SELECT tl.ticket_id, MIN(tl.created_at) AS completed_at
 	FROM ticket_log tl
-	WHERE tl.deleted_at IS NULL
-	  AND tl.kind = 'transition'
-	  AND tl.to_state = ?
+	WHERE ` + strings.Join(transitionWhere, " AND ") + `
 	GROUP BY tl.ticket_id
 ) AS first_transition ON first_transition.ticket_id = ft.id`
+
+	args = append(args, transitionArgs...)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {
@@ -420,20 +457,25 @@ func buildNumericSummary(values []float64) NumericSummary {
 
 func queryThroughput(db *sql.DB, opts Options) (Throughput, error) {
 	filteredQuery, args := filteredTicketsQuery(opts)
+	transitionWhere := []string{"tl.deleted_at IS NULL", "tl.kind = 'transition'", "tl.to_state = ?"}
+	transitionArgs := []any{string(models.StatusDone)}
+	if rangeWhere, rangeArgs := timeRangeWhere("tl.created_at", opts); opts.Since != nil || opts.Until != nil {
+		transitionWhere = append(transitionWhere, rangeWhere)
+		transitionArgs = append(transitionArgs, rangeArgs...)
+	}
+
 	query := `
 SELECT first_done.done_at
 FROM (` + filteredQuery + `) AS ft
 JOIN (
 	SELECT tl.ticket_id, MIN(tl.created_at) AS done_at
 	FROM ticket_log tl
-	WHERE tl.deleted_at IS NULL
-	  AND tl.kind = 'transition'
-	  AND tl.to_state = ?
+	WHERE ` + strings.Join(transitionWhere, " AND ") + `
 	GROUP BY tl.ticket_id
 ) AS first_done ON first_done.ticket_id = ft.id
 ORDER BY first_done.done_at ASC`
 
-	args = append(args, string(models.StatusDone))
+	args = append(args, transitionArgs...)
 	rows, err := db.Query(query, args...)
 	if err != nil {
 		return Throughput{}, err
@@ -472,6 +514,13 @@ ORDER BY first_done.done_at ASC`
 
 func queryResourceBurn(db *sql.DB, opts Options) (ResourceBurn, error) {
 	filteredQuery, args := filteredTicketsQuery(opts)
+	usageWhere := []string{"u.deleted_at IS NULL"}
+	var usageArgs []any
+	if rangeWhere, rangeArgs := timeRangeWhere("u.created_at", opts); opts.Since != nil || opts.Until != nil {
+		usageWhere = append(usageWhere, rangeWhere)
+		usageArgs = append(usageArgs, rangeArgs...)
+	}
+
 	query := `
 SELECT
 	ft.main_type,
@@ -481,8 +530,10 @@ SELECT
 	u.created_at
 FROM (` + filteredQuery + `) AS ft
 JOIN ticket_usage u ON u.ticket_id = ft.id
-WHERE u.deleted_at IS NULL
+WHERE ` + strings.Join(usageWhere, " AND ") + `
 ORDER BY u.created_at ASC, u.id ASC`
+
+	args = append(args, usageArgs...)
 
 	rows, err := db.Query(query, args...)
 	if err != nil {

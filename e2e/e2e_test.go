@@ -1637,9 +1637,12 @@ func TestE2E(t *testing.T) {
 		createSession(t, dir, "implementer")
 		seedStatsE2EData(t, dir)
 
-		stdout, stderr, code := run(t, dir, "stats", "--verified", "--archived")
+		stdout, stderr, code := run(t, dir, "stats")
 		if code != 0 {
 			t.Fatalf("stats failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Scope: default last 24 hours, all ticket types and statuses") {
+			t.Fatalf("stats default scope missing: %q", stdout)
 		}
 		for _, section := range []string{"Overview", "Cycle Time", "Throughput", "Resource Burn", "Distribution"} {
 			if !strings.Contains(stdout, section) {
@@ -1870,7 +1873,8 @@ func seedStatsE2EData(t *testing.T, dir string) {
 	db := openDB(t, dir)
 	defer db.Close()
 
-	base := time.Date(2026, 4, 1, 9, 0, 0, 0, time.UTC)
+	createdBase := time.Now().UTC().Add(-72 * time.Hour)
+	activityBase := time.Now().UTC().Add(-6 * time.Hour)
 	tickets := []struct {
 		title     string
 		status    string
@@ -1878,11 +1882,12 @@ func seedStatsE2EData(t *testing.T, dir string) {
 		mainType  string
 		createdBy string
 		createdAt time.Time
+		updatedAt time.Time
 	}{
-		{"Stats todo", "TODO", "standard", "feature", "alice", base},
-		{"Stats done", "DONE", "critical", "feature", "alice", base.AddDate(0, 0, 1)},
-		{"Stats verified", "VERIFIED", "standard", "bugfix", "bob", base.AddDate(0, 0, 2)},
-		{"Stats archived", "ARCHIVED", "low", "docs", "carol", base.AddDate(0, 0, 3)},
+		{"Stats todo", "TODO", "standard", "feature", "alice", createdBase, activityBase},
+		{"Stats done", "DONE", "critical", "feature", "alice", createdBase.Add(time.Hour), activityBase.Add(time.Hour)},
+		{"Stats verified", "VERIFIED", "standard", "bugfix", "bob", createdBase.Add(2 * time.Hour), activityBase.Add(2 * time.Hour)},
+		{"Stats archived", "ARCHIVED", "low", "docs", "carol", createdBase.Add(3 * time.Hour), activityBase.Add(3 * time.Hour)},
 	}
 
 	ids := make([]int64, 0, len(tickets))
@@ -1890,7 +1895,7 @@ func seedStatsE2EData(t *testing.T, dir string) {
 		res, err := db.Exec(
 			`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
 			 VALUES (?, '', ?, ?, ?, ?, ?, ?)`,
-			tk.title, tk.status, tk.tier, tk.mainType, tk.createdBy, tk.createdAt, tk.createdAt,
+			tk.title, tk.status, tk.tier, tk.mainType, tk.createdBy, tk.createdAt, tk.updatedAt,
 		)
 		if err != nil {
 			t.Fatalf("seedStatsE2EData insert %q: %v", tk.title, err)
@@ -1903,9 +1908,9 @@ func seedStatsE2EData(t *testing.T, dir string) {
 		id int64
 		at time.Time
 	}{
-		{ids[1], tickets[1].createdAt.Add(24 * time.Hour)},
-		{ids[2], tickets[2].createdAt.Add(48 * time.Hour)},
-		{ids[3], tickets[3].createdAt.Add(72 * time.Hour)},
+		{ids[1], activityBase.Add(time.Hour)},
+		{ids[2], activityBase.Add(2 * time.Hour)},
+		{ids[3], activityBase.Add(3 * time.Hour)},
 	}
 	for _, tr := range transitions {
 		if _, err := db.Exec(
@@ -1919,7 +1924,7 @@ func seedStatsE2EData(t *testing.T, dir string) {
 	if _, err := db.Exec(
 		`INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, created_at)
 		 VALUES (?, 'stats-e2e', 'transition', 'verified', 'DONE', 'VERIFIED', ?)`,
-		ids[2], tickets[2].createdAt.Add(72*time.Hour),
+		ids[2], activityBase.Add(4*time.Hour),
 	); err != nil {
 		t.Fatalf("seedStatsE2EData verified transition: %v", err)
 	}
@@ -1928,7 +1933,7 @@ func seedStatsE2EData(t *testing.T, dir string) {
 		if _, err := db.Exec(
 			`INSERT INTO ticket_usage (ticket_id, session_name, tokens, tools, duration_ms, agent, label, created_at)
 			 VALUES (?, 'stats-e2e', ?, ?, ?, 'implementer', 'e2e', ?)`,
-			id, 100*(i+1), i+1, 1000*(i+1), tickets[i].createdAt.Add(time.Hour),
+			id, 100*(i+1), i+1, 1000*(i+1), activityBase.Add(time.Duration(i)*time.Hour),
 		); err != nil {
 			t.Fatalf("seedStatsE2EData usage: %v", err)
 		}

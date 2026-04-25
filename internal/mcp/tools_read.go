@@ -262,8 +262,8 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 	s.AddTool(
 		mcplib.NewTool("tkt_stats",
 			mcplib.WithDescription("Show project statistics with optional filters."),
-			mcplib.WithString("since", mcplib.Description("Include tickets created on or after YYYY-MM-DD")),
-			mcplib.WithString("until", mcplib.Description("Include tickets created on or before YYYY-MM-DD")),
+			mcplib.WithString("since", mcplib.Description("Include ticket activity on or after YYYY-MM-DD")),
+			mcplib.WithString("until", mcplib.Description("Include ticket activity on or before YYYY-MM-DD")),
 			mcplib.WithString("status", mcplib.Description("Filter by status: TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED")),
 			mcplib.WithString("tier", mcplib.Description("Filter by tier: critical, standard, low")),
 			mcplib.WithString("type", mcplib.Description("Filter by main type")),
@@ -272,6 +272,7 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 			mcplib.WithBoolean("archived", mcplib.Description("Include ARCHIVED tickets")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			defaultScope := statsMCPDefaultScopeActive(req)
 			opts, err := statsOptionsFromMCP(req)
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
@@ -282,7 +283,11 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
-			return mcplib.NewToolResultText(output.RenderStats(report)), nil
+			text := output.RenderStats(report)
+			if defaultScope {
+				text = "Scope: default last 24 hours, all ticket types and statuses\n\n" + text
+			}
+			return mcplib.NewToolResultText(text), nil
 		},
 	)
 
@@ -420,13 +425,18 @@ func statsOptionsFromMCP(req mcplib.CallToolRequest) (statsPkg.Options, error) {
 	untilStr := req.GetString("until", "")
 	statusStr := req.GetString("status", "")
 	tier := req.GetString("tier", "")
+	defaultScope := statsMCPDefaultScopeActive(req)
 
 	opts := statsPkg.Options{
 		Tier:            tier,
 		Type:            req.GetString("type", ""),
 		CreatedBy:       req.GetString("created_by", ""),
-		IncludeVerified: req.GetBool("verified", false),
-		IncludeArchived: req.GetBool("archived", false),
+		IncludeVerified: req.GetBool("verified", false) || defaultScope,
+		IncludeArchived: req.GetBool("archived", false) || defaultScope,
+	}
+	if defaultScope {
+		since := time.Now().Add(-24 * time.Hour)
+		opts.Since = &since
 	}
 
 	if sinceStr != "" {
@@ -467,6 +477,17 @@ func statsOptionsFromMCP(req mcplib.CallToolRequest) (statsPkg.Options, error) {
 
 func parseMCPStatsDate(value string) (time.Time, error) {
 	return time.ParseInLocation("2006-01-02", value, time.UTC)
+}
+
+func statsMCPDefaultScopeActive(req mcplib.CallToolRequest) bool {
+	return req.GetString("since", "") == "" &&
+		req.GetString("until", "") == "" &&
+		req.GetString("status", "") == "" &&
+		req.GetString("tier", "") == "" &&
+		req.GetString("type", "") == "" &&
+		req.GetString("created_by", "") == "" &&
+		!req.GetBool("verified", false) &&
+		!req.GetBool("archived", false)
 }
 
 var validMCPStatsStatuses = map[string]bool{

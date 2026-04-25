@@ -264,6 +264,21 @@ func TestCompute_Filters(t *testing.T) {
 		}
 	})
 
+	t.Run("since until uses activity time", func(t *testing.T) {
+		since := tickets["doneA"].CreatedAt.Add(12 * time.Hour)
+		until := tickets["doneA"].CreatedAt.Add(36 * time.Hour)
+		report, err := Compute(database, Options{Since: &since, Until: &until, Type: "feature"})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if report.Overview.Total != 1 || report.Overview.Done != 1 || report.Throughput.Total != 1 {
+			t.Fatalf("activity filtered report overview=%+v throughput=%+v", report.Overview, report.Throughput)
+		}
+		if report.ResourceBurn.Tokens.Count != 0 {
+			t.Fatalf("resource usage outside activity window should be excluded: %+v", report.ResourceBurn.Tokens)
+		}
+	})
+
 	t.Run("include verified", func(t *testing.T) {
 		report, err := Compute(database, Options{IncludeVerified: true})
 		if err != nil {
