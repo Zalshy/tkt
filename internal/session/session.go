@@ -23,10 +23,6 @@ var ErrNoSession = errors.New("no active session")
 // distinguishable by humans and by errors.Is callers.
 var ErrExpiredSession = errors.New("session has expired")
 
-// maxRetries is the number of times Create will retry on a PK collision before
-// falling back to appending a hex suffix.
-const maxRetries = 5
-
 // LoadActive reads the active session from the .tkt/session file, looks it up in the
 // DB, updates last_active, and returns the Session.
 //
@@ -86,15 +82,11 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 	return &s, nil
 }
 
-// Create generates a new session ID, inserts a row into the sessions table, and
-// writes the bare session ID to the .tkt/session file.
+// Create generates a new ULID, inserts a row into the sessions table, and
+// writes the bare session ULID to the .tkt/session file.
 //
 // name is the user-supplied session name (may be empty for random word). If non-empty,
 // it must already have been validated by ValidateName.
-//
-// Collision strategy: attempt insertSession directly. On PRIMARY KEY constraint error,
-// generate a new ID and retry up to maxRetries times. After maxRetries failures,
-// append a randomHex4 suffix and do one final insert.
 func Create(role models.Role, name string, db *sql.DB, root string) (*models.Session, error) {
 	// Validate the role is registered before inserting.
 	exists, err := rolepkg.Exists(string(role), db)
@@ -111,49 +103,31 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 	}
 
 	s := models.Session{
+		ID:            GenerateULID(),
 		Role:          role,
 		EffectiveRole: base,
 	}
 
-	// Insert-and-catch collision retry loop.
-	// On PK constraint error, generate a fresh random word and retry.
-	id := GenerateID(name)
-	var insertErr error
-	for i := 0; i < maxRetries; i++ {
-		s.ID = id
-		s.Name = id
-		insertErr = insertSession(db, &s)
-		if insertErr == nil {
-			break
-		}
-		if !isPKConstraintError(insertErr) {
-			return nil, fmt.Errorf("Create: %w", insertErr)
-		}
-		// Collision — only retry with random words (not user-supplied names).
-		id = GenerateID("")
-	}
-
-	// After maxRetries failures, fall back to word + hex suffix.
-	if insertErr != nil {
-		if !isPKConstraintError(insertErr) {
-			return nil, fmt.Errorf("Create: %w", insertErr)
-		}
-		hex4, err := randomHex4()
-		if err != nil {
-			return nil, fmt.Errorf("Create: %w", err)
-		}
-		id = GenerateID("") + "-" + hex4
-		s.ID = id
-		s.Name = id
+	if name != "" {
+		s.Name = GenerateName(name)
 		if err := insertSession(db, &s); err != nil {
 			return nil, fmt.Errorf("Create: %w", err)
 		}
+	} else {
+		baseName := GenerateName("")
+		candidates, err := candidateNames(baseName)
+		if err != nil {
+			return nil, fmt.Errorf("Create: %w", err)
+		}
+		if err := insertWithNameFallback(&s, candidates, db, "Create"); err != nil {
+			return nil, err
+		}
 	}
 
-	// Write the bare ID with no newline to .tkt/session.
+	// Write the bare ULID with no newline to .tkt/session.
 	// LoadActive applies TrimSpace on read, but we intentionally write no trailing bytes.
 	sessionFile := project.SessionFile(root)
-	if err := os.WriteFile(sessionFile, []byte(id), 0o644); err != nil {
+	if err := os.WriteFile(sessionFile, []byte(s.ID), 0o644); err != nil {
 		// Best-effort cleanup — delete the DB row we just inserted.
 		_, _ = db.Exec(`DELETE FROM sessions WHERE id = ?`, s.ID)
 		return nil, fmt.Errorf("Create: write session file: %w", err)
@@ -162,10 +136,9 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 	return &s, nil
 }
 
-// CreateSystem inserts a session row for a built-in system role (e.g. monitor)
+// CreateSystem inserts a DB-only session row for a built-in system role (e.g. monitor)
 // WITHOUT writing to the .tkt/session file. Used by tkt monitor to own its
 // own session without displacing any user session.
-// Collision retry strategy mirrors Create.
 func CreateSystem(role models.Role, db *sql.DB) (*models.Session, error) {
 	// Validate the role is registered before inserting.
 	exists, err := rolepkg.Exists(string(role), db)
@@ -182,43 +155,56 @@ func CreateSystem(role models.Role, db *sql.DB) (*models.Session, error) {
 	}
 
 	s := models.Session{
+		ID:            GenerateULID(),
 		Role:          role,
 		EffectiveRole: base,
 	}
-
-	id := GenerateID("")
-	var insertErr error
-	for i := 0; i < maxRetries; i++ {
-		s.ID = id
-		s.Name = id
-		insertErr = insertSession(db, &s)
-		if insertErr == nil {
-			break
-		}
-		if !isPKConstraintError(insertErr) {
-			return nil, fmt.Errorf("CreateSystem: %w", insertErr)
-		}
-		id = GenerateID("")
+	baseName := GenerateName("")
+	candidates, err := candidateNames(baseName)
+	if err != nil {
+		return nil, fmt.Errorf("CreateSystem: %w", err)
 	}
-
-	if insertErr != nil {
-		if !isPKConstraintError(insertErr) {
-			return nil, fmt.Errorf("CreateSystem: %w", insertErr)
-		}
-		hex4, err := randomHex4()
-		if err != nil {
-			return nil, fmt.Errorf("CreateSystem: %w", err)
-		}
-		id = GenerateID("") + "-" + hex4
-		s.ID = id
-		s.Name = id
-		if err := insertSession(db, &s); err != nil {
-			return nil, fmt.Errorf("CreateSystem: %w", err)
-		}
+	if err := insertWithNameFallback(&s, candidates, db, "CreateSystem"); err != nil {
+		return nil, err
 	}
 
 	// Deliberately does NOT write a session file — system session is DB-only.
 	return &s, nil
+}
+
+func candidateNames(base string) ([]string, error) {
+	firstHex, err := randomHex4()
+	if err != nil {
+		return nil, err
+	}
+	secondHex, err := randomHex4()
+	if err != nil {
+		return nil, err
+	}
+	return []string{
+		base,
+		base + "-" + firstHex,
+		base + "-" + firstHex + "-" + secondHex,
+	}, nil
+}
+
+func insertWithNameFallback(s *models.Session, candidates []string, db *sql.DB, op string) error {
+	var lastErr error
+	for _, candidate := range candidates {
+		s.Name = candidate
+		if err := insertSession(db, s); err != nil {
+			lastErr = err
+			if !isPKConstraintError(err) {
+				return fmt.Errorf("%s: %w", op, err)
+			}
+			continue
+		}
+		return nil
+	}
+	if lastErr != nil {
+		return fmt.Errorf("%s: %w", op, lastErr)
+	}
+	return fmt.Errorf("%s: no candidate session names generated", op)
 }
 
 // ExpireByID sets expired_at = datetime('now') for the session with the given ID.

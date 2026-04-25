@@ -142,8 +142,7 @@ func TestDelete_BuiltIn(t *testing.T) {
 	}
 }
 
-// TestDelete_InUse verifies that deleting a role with an active session succeeds by
-// expiring those sessions first rather than blocking with ErrInUse.
+// TestDelete_InUse verifies that deleting a role with an active session returns ErrInUse.
 func TestDelete_InUse(t *testing.T) {
 	db := setupTestDB(t)
 
@@ -156,27 +155,26 @@ func TestDelete_InUse(t *testing.T) {
 		t.Fatalf("insert session: %v", err)
 	}
 
-	// Delete should now succeed — it expires active sessions before deleting the role.
-	if err := Delete("ops", db); err != nil {
-		t.Fatalf("Delete in-use: expected success, got %v", err)
+	err := Delete("ops", db)
+	if err == nil {
+		t.Fatal("Delete in-use: expected error, got nil")
 	}
-
-	// Verify the session was expired.
-	var expiredAt *string
+	if !errors.Is(err, ErrInUse) {
+		t.Fatalf("Delete in-use: got %v, want ErrInUse", err)
+	}
+	var expiredAt any
 	if err := db.QueryRow(`SELECT expired_at FROM sessions WHERE id = 'sess-001'`).Scan(&expiredAt); err != nil {
 		t.Fatalf("query session: %v", err)
 	}
-	if expiredAt == nil {
-		t.Error("session expired_at is NULL — expected it to be set after role delete")
+	if expiredAt != nil {
+		t.Error("session should remain active after failed role delete")
 	}
-
-	// Verify the role is gone.
 	exists, err := Exists("ops", db)
 	if err != nil {
 		t.Fatalf("Exists: %v", err)
 	}
-	if exists {
-		t.Error("role 'ops' still exists after Delete")
+	if !exists {
+		t.Error("role 'ops' should still exist after failed Delete")
 	}
 }
 

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strconv"
 	"strings"
+	"time"
 
 	mcplib "github.com/mark3labs/mcp-go/mcp"
 	"github.com/mark3labs/mcp-go/server"
@@ -17,6 +18,7 @@ import (
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/output"
 	"github.com/zalshy/tkt/internal/role"
+	statsPkg "github.com/zalshy/tkt/internal/stats"
 	"github.com/zalshy/tkt/internal/ticket"
 	"github.com/zalshy/tkt/internal/usage"
 
@@ -256,6 +258,39 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 		},
 	)
 
+	// tkt_stats
+	s.AddTool(
+		mcplib.NewTool("tkt_stats",
+			mcplib.WithDescription("Show project statistics with optional filters."),
+			mcplib.WithString("since", mcplib.Description("Include ticket activity on or after YYYY-MM-DD")),
+			mcplib.WithString("until", mcplib.Description("Include ticket activity on or before YYYY-MM-DD")),
+			mcplib.WithString("status", mcplib.Description("Filter by status: TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED")),
+			mcplib.WithString("tier", mcplib.Description("Filter by tier: critical, standard, low")),
+			mcplib.WithString("type", mcplib.Description("Filter by main type")),
+			mcplib.WithString("created_by", mcplib.Description("Filter by creator session name")),
+			mcplib.WithBoolean("verified", mcplib.Description("Include VERIFIED tickets")),
+			mcplib.WithBoolean("archived", mcplib.Description("Include ARCHIVED tickets")),
+		),
+		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			defaultScope := statsMCPDefaultScopeActive(req)
+			opts, err := statsOptionsFromMCP(req)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
+			report, err := statsPkg.Compute(db, opts)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
+			text := output.RenderStats(report)
+			if defaultScope {
+				text = "Scope: default last 24 hours, all ticket types and statuses\n\n" + text
+			}
+			return mcplib.NewToolResultText(text), nil
+		},
+	)
+
 	// tkt_list_context
 	s.AddTool(
 		mcplib.NewTool("tkt_list_context",
@@ -383,4 +418,79 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 
 	// suppress unused import warning for strconv if not used elsewhere
 	_ = strconv.Itoa
+}
+
+func statsOptionsFromMCP(req mcplib.CallToolRequest) (statsPkg.Options, error) {
+	sinceStr := req.GetString("since", "")
+	untilStr := req.GetString("until", "")
+	statusStr := req.GetString("status", "")
+	tier := req.GetString("tier", "")
+	defaultScope := statsMCPDefaultScopeActive(req)
+
+	opts := statsPkg.Options{
+		Tier:            tier,
+		Type:            req.GetString("type", ""),
+		CreatedBy:       req.GetString("created_by", ""),
+		IncludeVerified: req.GetBool("verified", false) || defaultScope,
+		IncludeArchived: req.GetBool("archived", false) || defaultScope,
+	}
+	if defaultScope {
+		since := time.Now().Add(-24 * time.Hour)
+		opts.Since = &since
+	}
+
+	if sinceStr != "" {
+		since, err := parseMCPStatsDate(sinceStr)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("invalid since %q: use YYYY-MM-DD", sinceStr)
+		}
+		opts.Since = &since
+	}
+
+	if untilStr != "" {
+		until, err := parseMCPStatsDate(untilStr)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("invalid until %q: use YYYY-MM-DD", untilStr)
+		}
+		until = until.Add(24*time.Hour - time.Nanosecond)
+		opts.Until = &until
+	}
+
+	if opts.Since != nil && opts.Until != nil && opts.Since.After(*opts.Until) {
+		return statsPkg.Options{}, fmt.Errorf("since must be before or equal to until")
+	}
+
+	if statusStr != "" {
+		if !validMCPStatsStatuses[statusStr] {
+			return statsPkg.Options{}, fmt.Errorf("invalid status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED", statusStr)
+		}
+		status := models.Status(statusStr)
+		opts.Status = &status
+	}
+
+	if tier != "" && tier != "critical" && tier != "standard" && tier != "low" {
+		return statsPkg.Options{}, fmt.Errorf("invalid tier %q: must be critical, standard, or low", tier)
+	}
+
+	return opts, nil
+}
+
+func parseMCPStatsDate(value string) (time.Time, error) {
+	return time.ParseInLocation("2006-01-02", value, time.UTC)
+}
+
+func statsMCPDefaultScopeActive(req mcplib.CallToolRequest) bool {
+	return req.GetString("since", "") == "" &&
+		req.GetString("until", "") == "" &&
+		req.GetString("status", "") == "" &&
+		req.GetString("tier", "") == "" &&
+		req.GetString("type", "") == "" &&
+		req.GetString("created_by", "") == "" &&
+		!req.GetBool("verified", false) &&
+		!req.GetBool("archived", false)
+}
+
+var validMCPStatsStatuses = map[string]bool{
+	"TODO": true, "PLANNING": true, "IN_PROGRESS": true,
+	"DONE": true, "VERIFIED": true, "CANCELED": true, "ARCHIVED": true,
 }

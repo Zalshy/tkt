@@ -25,6 +25,83 @@ func setupDBWithRoot(t *testing.T) (string, *sql.DB) {
 	return root, database
 }
 
+func restoreLegacyTicketUsage(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_ticket_usage_ticket_id_deleted_at`,
+		`DROP TABLE IF EXISTS ticket_usage`,
+		`CREATE TABLE ticket_usage (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id   INTEGER NOT NULL REFERENCES tickets(id),
+    session_id  TEXT    NOT NULL,
+    tokens      INTEGER NOT NULL,
+    tools       INTEGER NOT NULL DEFAULT 0,
+    duration_ms INTEGER NOT NULL DEFAULT 0,
+    agent       TEXT    NOT NULL DEFAULT '',
+    label       TEXT    NOT NULL DEFAULT '',
+    created_at  DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at  DATETIME NULL
+)`,
+		`CREATE INDEX idx_ticket_usage_ticket_id_deleted_at ON ticket_usage(ticket_id, deleted_at)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("restore legacy ticket_usage stmt %q: %v", stmt, err)
+		}
+	}
+}
+
+func restoreLegacyProjectContext(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_project_context_deleted_at`,
+		`DROP TABLE IF EXISTS project_context`,
+		`CREATE TABLE project_context (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    title      TEXT NOT NULL,
+    body       TEXT NOT NULL,
+    session_id TEXT NOT NULL,
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    updated_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at DATETIME NULL
+)`,
+		`CREATE INDEX idx_project_context_deleted_at ON project_context(deleted_at)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("restore legacy project_context stmt %q: %v", stmt, err)
+		}
+	}
+}
+
+func restoreLegacyTicketLog(t *testing.T, db *sql.DB) {
+	t.Helper()
+	for _, stmt := range []string{
+		`DROP INDEX IF EXISTS idx_ticket_log_ticket_id_kind`,
+		`DROP INDEX IF EXISTS idx_ticket_log_deleted_at`,
+		`DROP INDEX IF EXISTS idx_ticket_log_kind`,
+		`DROP INDEX IF EXISTS idx_ticket_log_ticket_id`,
+		`DROP TABLE IF EXISTS ticket_log`,
+		`CREATE TABLE ticket_log (
+    id         INTEGER PRIMARY KEY AUTOINCREMENT,
+    ticket_id  INTEGER NOT NULL REFERENCES tickets(id),
+    session_id TEXT NOT NULL,
+    kind       TEXT NOT NULL,
+    body       TEXT NOT NULL DEFAULT '',
+    from_state TEXT NOT NULL DEFAULT '',
+    to_state   TEXT NOT NULL DEFAULT '',
+    created_at DATETIME NOT NULL DEFAULT (datetime('now')),
+    deleted_at DATETIME NULL
+)`,
+		`CREATE INDEX idx_ticket_log_ticket_id ON ticket_log(ticket_id)`,
+		`CREATE INDEX idx_ticket_log_kind ON ticket_log(kind)`,
+		`CREATE INDEX idx_ticket_log_deleted_at ON ticket_log(deleted_at)`,
+		`CREATE INDEX idx_ticket_log_ticket_id_kind ON ticket_log(ticket_id, kind)`,
+	} {
+		if _, err := db.Exec(stmt); err != nil {
+			t.Fatalf("restore legacy ticket_log stmt %q: %v", stmt, err)
+		}
+	}
+}
+
 // TestMigration_FreshDB verifies that a brand-new DB ends up at schema_version=13
 // and that the ticket_dependencies table exists.
 func TestMigration_FreshDB(t *testing.T) {
@@ -44,8 +121,8 @@ func TestMigration_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 }
 
@@ -75,8 +152,8 @@ func TestMigration_V2ToV3(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -103,8 +180,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 14 {
-		t.Errorf("schema_version after first Open = %d, want 14", v1)
+	if v1 != 18 {
+		t.Errorf("schema_version after first Open = %d, want 18", v1)
 	}
 	db1.Close()
 
@@ -118,8 +195,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 14 {
-		t.Errorf("schema_version after second Open = %d, want 14", v2)
+	if v2 != 18 {
+		t.Errorf("schema_version after second Open = %d, want 18", v2)
 	}
 }
 
@@ -133,8 +210,8 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// Assert exactly 3 rows in roles (architect, implementer, monitor).
@@ -246,8 +323,8 @@ func TestMigration_V7_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	var name string
@@ -344,6 +421,7 @@ func TestMigration_V7_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	restoreLegacyProjectContext(t, db1)
 
 	// Now that ticket_log is unconstrained, insert the usage rows (simulating pre-V7 data).
 	// The schema_version downgrade below causes the next Open to re-run V7 (backfill),
@@ -388,8 +466,8 @@ func TestMigration_V7_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	var count int
@@ -510,6 +588,8 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	restoreLegacyTicketUsage(t, db1)
+	restoreLegacyProjectContext(t, db1)
 	// Drop V14 columns so V14 re-runs cleanly on next Open.
 	for _, stmt := range []string{
 		`ALTER TABLE tickets DROP COLUMN main_type`,
@@ -552,8 +632,8 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// Assert all usage rows were deleted (V8) and are absent from the final ticket_log.
@@ -605,7 +685,7 @@ func TestMigration_V7_VerifyFunction(t *testing.T) {
 	// Insert directly into ticket_usage without any corresponding ticket_log usage row.
 	// This creates mismatch: source=0 (no usage rows in ticket_log), backfilled=1.
 	if _, err := tx.Exec(
-		`INSERT INTO ticket_usage (ticket_id, session_id, tokens, tools, duration_ms, agent, label) VALUES (?, 'sess-v7', 1, 0, 0, '', '')`,
+		`INSERT INTO ticket_usage (ticket_id, session_name, tokens, tools, duration_ms, agent, label) VALUES (?, 'sess-v7', 1, 0, 0, '', '')`,
 		ticketID,
 	); err != nil {
 		t.Fatalf("insert ticket_usage: %v", err)
@@ -630,8 +710,8 @@ func TestMigration_V9_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// V10 renamed ticket_log_new to ticket_log — the _new table must not exist.
@@ -738,6 +818,8 @@ func TestMigration_V9_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	restoreLegacyTicketUsage(t, db1)
+	restoreLegacyProjectContext(t, db1)
 	// Drop V14 columns so V14 re-runs cleanly on next Open.
 	for _, stmt := range []string{
 		`ALTER TABLE tickets DROP COLUMN main_type`,
@@ -779,8 +861,8 @@ func TestMigration_V9_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// After V10, ticket_log_new must not exist.
@@ -863,7 +945,7 @@ func TestMigration_V9_KindConstraint(t *testing.T) {
 	ticketID, _ := res.LastInsertId()
 
 	_, insertErr := database.Exec(
-		`INSERT INTO ticket_log (ticket_id, session_id, kind, body) VALUES (?, 'sess-kind', 'usage', 'body')`,
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body) VALUES (?, 'sess-kind', 'usage', 'body')`,
 		ticketID,
 	)
 	if insertErr == nil {
@@ -875,10 +957,8 @@ func TestMigration_V9_KindConstraint(t *testing.T) {
 	}
 }
 
-// TestMigration_V9_FKConstraint verifies that the FK on session_id rejects
-// inserts referencing a non-existent session (PRAGMA foreign_keys = ON is set
-// by db.Open before migrations run).
-// After V10, the FK lives on ticket_log (renamed from ticket_log_new).
+// TestMigration_V9_NoFKConstraint verifies that after #173 ticket_log no longer
+// has an FK on session_name, so inserts with a ghost session name succeed.
 func TestMigration_V9_FKConstraint(t *testing.T) {
 	_, database := setupDBWithRoot(t)
 
@@ -889,15 +969,11 @@ func TestMigration_V9_FKConstraint(t *testing.T) {
 	ticketID, _ := res.LastInsertId()
 
 	_, insertErr := database.Exec(
-		`INSERT INTO ticket_log (ticket_id, session_id, kind, body) VALUES (?, 'ghost-sess', 'message', 'body')`,
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body) VALUES (?, 'ghost-sess', 'message', 'body')`,
 		ticketID,
 	)
-	if insertErr == nil {
-		t.Fatal("expected FK constraint violation for non-existent session_id, got nil error")
-	}
-	msg := strings.ToLower(insertErr.Error())
-	if !strings.Contains(msg, "constraint") && !strings.Contains(msg, "foreign") {
-		t.Errorf("unexpected error text %q — expected foreign key/constraint violation", insertErr.Error())
+	if insertErr != nil {
+		t.Fatalf("expected no FK constraint on ghost session_name, got: %v", insertErr)
 	}
 }
 
@@ -936,7 +1012,7 @@ func TestMigration_V9_VerifyFunction(t *testing.T) {
 
 	// Insert a row into ticket_log (source count = 1).
 	if _, err := tx.Exec(
-		`INSERT INTO ticket_log (ticket_id, session_id, kind, body) VALUES (?, 'sess-v9vf', 'message', 'hello')`,
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body) VALUES (?, 'sess-v9vf', 'message', 'hello')`,
 		ticketID,
 	); err != nil {
 		t.Fatalf("insert ticket_log: %v", err)
@@ -963,8 +1039,8 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// Assert ticket_log_new does NOT exist (V10 renamed it to ticket_log).
@@ -1031,7 +1107,7 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 	ticketID, _ := res.LastInsertId()
 
 	_, checkErr := database.Exec(
-		`INSERT INTO ticket_log (ticket_id, session_id, kind, body) VALUES (?, 'sess-v10', 'usage', 'body')`,
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body) VALUES (?, 'sess-v10', 'usage', 'body')`,
 		ticketID,
 	)
 	if checkErr == nil {
@@ -1042,18 +1118,13 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 		t.Errorf("unexpected error %q — expected CHECK constraint violation", checkErr.Error())
 	}
 
-	// Assert that the FK(session_id) constraint survived the rename:
-	// inserting a non-existent session_id must fail.
+	// #173 removes the ticket_log FK; a ghost session_name should now succeed.
 	_, fkErr := database.Exec(
-		`INSERT INTO ticket_log (ticket_id, session_id, kind, body) VALUES (?, 'ghost-sess', 'message', 'body')`,
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body) VALUES (?, 'ghost-sess', 'message', 'body')`,
 		ticketID,
 	)
-	if fkErr == nil {
-		t.Fatal("expected FK constraint violation for non-existent session_id, got nil error")
-	}
-	fkMsg := strings.ToLower(fkErr.Error())
-	if !strings.Contains(fkMsg, "constraint") && !strings.Contains(fkMsg, "foreign") {
-		t.Errorf("unexpected error %q — expected FK constraint violation", fkErr.Error())
+	if fkErr != nil {
+		t.Fatalf("expected no FK constraint on ghost session_name, got: %v", fkErr)
 	}
 }
 
@@ -1101,6 +1172,9 @@ func TestMigration_V11_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	restoreLegacyTicketLog(t, db1)
+	restoreLegacyTicketUsage(t, db1)
+	restoreLegacyProjectContext(t, db1)
 	// Drop V14 columns so V14 re-runs cleanly on next Open.
 	for _, stmt := range []string{
 		`ALTER TABLE tickets DROP COLUMN main_type`,
@@ -1126,8 +1200,8 @@ func TestMigration_V11_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// After V12, ticket_dependencies_new is gone (renamed to ticket_dependencies).
@@ -1218,8 +1292,8 @@ func TestMigration_V12_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// ticket_dependencies_new must NOT exist after V12 (renamed to ticket_dependencies).
@@ -1338,6 +1412,9 @@ func TestMigration_V12_Backfill(t *testing.T) {
 			t.Fatalf("downgrade stmt %q: %v", stmt, err)
 		}
 	}
+	restoreLegacyTicketLog(t, db1)
+	restoreLegacyTicketUsage(t, db1)
+	restoreLegacyProjectContext(t, db1)
 	// Insert row into both tables for count parity.
 	if _, err := db1.Exec(
 		`INSERT INTO ticket_dependencies (ticket_id, depends_on) VALUES (?, ?)`,
@@ -1376,8 +1453,8 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// ticket_dependencies_new must NOT exist.

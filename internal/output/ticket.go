@@ -85,7 +85,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 	// Phase 2 — Column alignment pre-pass.
 	allIDs := []string{t.CreatedBy}
 	for _, e := range entries {
-		allIDs = append(allIDs, e.SessionID)
+		allIDs = append(allIDs, e.SessionName)
 	}
 	maxWidth := 0
 	for _, id := range allIDs {
@@ -130,14 +130,14 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 			if e.ToState != nil {
 				toStr = ColorStatus(*e.ToState)
 			}
-			b.WriteString(padID(e.SessionID) + "    ↳ " + fromStr + " → " + toStr + "\n")
+			b.WriteString(padID(e.SessionName) + "    ↳ " + fromStr + " → " + toStr + "\n")
 			if e.Body != "" {
 				for _, line := range strings.Split(e.Body, "\n") {
 					b.WriteString(indent + line + "\n")
 				}
 			}
 		case "plan":
-			b.WriteString(padID(e.SessionID) + "    [plan]\n")
+			b.WriteString(padID(e.SessionName) + "    [plan]\n")
 			if e.Body != "" {
 				for _, line := range strings.Split(e.Body, "\n") {
 					b.WriteString(indent + line + "\n")
@@ -146,7 +146,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 		default:
 			// "message" and any other non-usage kind
 			lines := strings.Split(e.Body, "\n")
-			b.WriteString(padID(e.SessionID) + "    " + lines[0] + "\n")
+			b.WriteString(padID(e.SessionName) + "    " + lines[0] + "\n")
 			for _, line := range lines[1:] {
 				b.WriteString(indent + line + "\n")
 			}
@@ -163,8 +163,8 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 		maxSessW := 0
 		maxAgentW := 0
 		for _, u := range usageEntries {
-			if len(u.SessionID) > maxSessW {
-				maxSessW = len(u.SessionID)
+			if len(u.SessionName) > maxSessW {
+				maxSessW = len(u.SessionName)
 			}
 			if len(u.Agent) > maxAgentW {
 				maxAgentW = len(u.Agent)
@@ -175,7 +175,7 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 		for _, u := range usageEntries {
 			totalTokens += u.Tokens
 
-			sessCol := u.SessionID + strings.Repeat(" ", maxSessW-len(u.SessionID))
+			sessCol := u.SessionName + strings.Repeat(" ", maxSessW-len(u.SessionName))
 			agentCol := u.Agent + strings.Repeat(" ", maxAgentW-len(u.Agent))
 
 			row := fmt.Sprintf("  %s    %s    %s tokens", sessCol, agentCol, FormatIntComma(u.Tokens))
@@ -207,10 +207,10 @@ func RenderTicket(t models.Ticket, entries []models.LogEntry, usageEntries []mod
 		seen[t.CreatedBy] = struct{}{}
 	}
 	for _, e := range entries {
-		seen[e.SessionID] = struct{}{}
+		seen[e.SessionName] = struct{}{}
 	}
 	for _, u := range usageEntries {
-		seen[u.SessionID] = struct{}{}
+		seen[u.SessionName] = struct{}{}
 	}
 
 	// Last activity time (uses all entries)

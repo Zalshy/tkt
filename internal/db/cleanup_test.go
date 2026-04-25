@@ -27,7 +27,7 @@ func TestCleanupStaleSessions_NoStale(t *testing.T) {
 	// Insert a session with last_active within 48h (just now).
 	_, err := database.Exec(
 		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now'))`,
-		"sess-fresh", "implementer", "Fresh Session",
+		"sess-fresh", "implementer", "fresh-session",
 	)
 	if err != nil {
 		t.Fatalf("insert fresh session: %v", err)
@@ -54,14 +54,20 @@ func TestCleanupStaleSessions_NoStale(t *testing.T) {
 func TestCleanupStaleSessions_StaleExpired(t *testing.T) {
 	database := setupDB(t)
 
-	// Insert two stale sessions (last_active 72h ago).
-	for _, id := range []string{"sess-stale-1", "sess-stale-2"} {
+	// Insert two stale sessions (last_active 8 days ago).
+	for _, tc := range []struct {
+		id   string
+		name string
+	}{
+		{"sess-stale-1", "stale-session-1"},
+		{"sess-stale-2", "stale-session-2"},
+	} {
 		_, err := database.Exec(
-			`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-72 hours'))`,
-			id, "implementer", "Stale Session",
+			`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-8 days'))`,
+			tc.id, "implementer", tc.name,
 		)
 		if err != nil {
-			t.Fatalf("insert stale session %s: %v", id, err)
+			t.Fatalf("insert stale session %s: %v", tc.id, err)
 		}
 	}
 
@@ -90,8 +96,8 @@ func TestCleanupStaleSessions_AlreadyExpiredIgnored(t *testing.T) {
 
 	// Insert a stale session that already has expired_at set.
 	_, err := database.Exec(
-		`INSERT INTO sessions (id, role, name, last_active, expired_at) VALUES (?, ?, ?, datetime('now', '-72 hours'), datetime('now', '-24 hours'))`,
-		"sess-already-expired", "implementer", "Already Expired",
+		`INSERT INTO sessions (id, role, name, last_active, expired_at) VALUES (?, ?, ?, datetime('now', '-8 days'), datetime('now', '-24 hours'))`,
+		"sess-already-expired", "implementer", "already-expired",
 	)
 	if err != nil {
 		t.Fatalf("insert already-expired session: %v", err)
@@ -111,8 +117,8 @@ func TestCleanupStaleSessions_DryRunNoWrite(t *testing.T) {
 
 	// Insert one stale session.
 	_, err := database.Exec(
-		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-72 hours'))`,
-		"sess-stale-dry", "implementer", "Stale Dry Run",
+		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-8 days'))`,
+		"sess-stale-dry", "implementer", "stale-dry-run",
 	)
 	if err != nil {
 		t.Fatalf("insert stale session: %v", err)
@@ -141,8 +147,8 @@ func TestCleanupStaleSessions_Mixed(t *testing.T) {
 
 	// One stale, unexpired — should be updated.
 	_, err := database.Exec(
-		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-72 hours'))`,
-		"sess-stale", "implementer", "Stale",
+		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-8 days'))`,
+		"sess-stale", "implementer", "stale",
 	)
 	if err != nil {
 		t.Fatalf("insert stale session: %v", err)
@@ -151,7 +157,7 @@ func TestCleanupStaleSessions_Mixed(t *testing.T) {
 	// One fresh — should be untouched.
 	_, err = database.Exec(
 		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now'))`,
-		"sess-fresh", "implementer", "Fresh",
+		"sess-fresh", "implementer", "fresh",
 	)
 	if err != nil {
 		t.Fatalf("insert fresh session: %v", err)
@@ -159,8 +165,8 @@ func TestCleanupStaleSessions_Mixed(t *testing.T) {
 
 	// One stale but already expired — should be ignored.
 	_, err = database.Exec(
-		`INSERT INTO sessions (id, role, name, last_active, expired_at) VALUES (?, ?, ?, datetime('now', '-72 hours'), datetime('now', '-24 hours'))`,
-		"sess-pre-expired", "implementer", "Pre-Expired",
+		`INSERT INTO sessions (id, role, name, last_active, expired_at) VALUES (?, ?, ?, datetime('now', '-8 days'), datetime('now', '-24 hours'))`,
+		"sess-pre-expired", "implementer", "pre-expired",
 	)
 	if err != nil {
 		t.Fatalf("insert pre-expired session: %v", err)

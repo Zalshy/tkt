@@ -11,7 +11,7 @@ import (
 //
 //	─────────────────────────────────────────────
 //	Context #N  ·  <title>
-//	<session_id>  ·  <date>
+//	<session_name>  ·  <date>
 //
 //	<body>
 func RenderContext(c models.Context) string {

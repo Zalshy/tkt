@@ -11,8 +11,11 @@
 package e2e
 
 import (
+	"bufio"
+	"context"
 	"database/sql"
 	"fmt"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -70,6 +73,12 @@ func buildBinary() (string, error) {
 // from user configuration and editor-dependent commands.
 func run(t *testing.T, dir string, args ...string) (stdout, stderr string, exitCode int) {
 	t.Helper()
+	return runWithInput(t, dir, "", args...)
+}
+
+// runWithInput executes tkt with the given args and optional stdin input.
+func runWithInput(t *testing.T, dir, input string, args ...string) (stdout, stderr string, exitCode int) {
+	t.Helper()
 	cmd := exec.Command(tktBin, args...)
 	cmd.Dir = dir
 
@@ -78,6 +87,9 @@ func run(t *testing.T, dir string, args ...string) (stdout, stderr string, exitC
 		"HOME=/dev/null",
 		"EDITOR=true",
 	)
+	if input != "" {
+		cmd.Stdin = strings.NewReader(input)
+	}
 
 	var outBuf, errBuf strings.Builder
 	cmd.Stdout = &outBuf
@@ -95,6 +107,19 @@ func run(t *testing.T, dir string, args ...string) (stdout, stderr string, exitC
 		}
 	}
 	return stdout, stderr, exitCode
+}
+
+func createTempFile(t *testing.T, dir, pattern, body string) string {
+	t.Helper()
+	f, err := os.CreateTemp(dir, pattern)
+	if err != nil {
+		t.Fatalf("createTempFile: %v", err)
+	}
+	defer f.Close()
+	if _, err := f.WriteString(body); err != nil {
+		t.Fatalf("createTempFile write: %v", err)
+	}
+	return f.Name()
 }
 
 // initProject runs tkt init in dir and fails if it doesn't succeed.
@@ -165,21 +190,80 @@ func seedTickets(t *testing.T, dir string, n int) {
 	}
 }
 
-// seedStaleSession inserts a session with last_active 3 days ago.
+// seedStaleSession inserts a session with last_active more than 7 days ago.
 func seedStaleSession(t *testing.T, dir, sessionID string) {
+	t.Helper()
+	seedSession(t, dir, sessionID, sessionID, "architect", time.Now().Add(-8*24*time.Hour), nil)
+}
+
+func seedSession(t *testing.T, dir, sessionID, sessionName, role string, lastActive time.Time, expiredAt *time.Time) {
 	t.Helper()
 	db := openDB(t, dir)
 	defer db.Close()
 
-	staleTime := time.Now().Add(-72 * time.Hour).UTC().Format("2006-01-02 15:06:05")
-	_, err := db.Exec(
-		`INSERT INTO sessions (id, role, name, created_at, last_active)
-		 VALUES (?, 'architect', ?, ?, ?)`,
-		sessionID, sessionID, staleTime, staleTime,
-	)
-	if err != nil {
-		t.Fatalf("seedStaleSession: insert: %v", err)
+	lastActiveStr := lastActive.UTC().Format("2006-01-02 15:04:05")
+	var err error
+	if expiredAt == nil {
+		_, err = db.Exec(
+			`INSERT INTO sessions (id, role, name, created_at, last_active)
+			 VALUES (?, ?, ?, ?, ?)`,
+			sessionID, role, sessionName, lastActiveStr, lastActiveStr,
+		)
+	} else {
+		expiredAtStr := expiredAt.UTC().Format("2006-01-02 15:04:05")
+		_, err = db.Exec(
+			`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
+			 VALUES (?, ?, ?, ?, ?, ?)`,
+			sessionID, role, sessionName, lastActiveStr, lastActiveStr, expiredAtStr,
+		)
 	}
+	if err != nil {
+		t.Fatalf("seedSession: insert: %v", err)
+	}
+}
+
+func latestSession(t *testing.T, dir string) (id, name string) {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+	if err := db.QueryRow(
+		`SELECT id, name FROM sessions ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+	).Scan(&id, &name); err != nil {
+		t.Fatalf("latestSession: %v", err)
+	}
+	return id, name
+}
+
+func ticketStatus(t *testing.T, dir string, ticketID int64) string {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+	var status string
+	if err := db.QueryRow(`SELECT status FROM tickets WHERE id = ?`, ticketID).Scan(&status); err != nil {
+		t.Fatalf("ticketStatus: %v", err)
+	}
+	return status
+}
+
+func setTicketState(t *testing.T, dir string, ticketID int64, status string, updatedAt time.Time) {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+	if _, err := db.Exec(
+		`UPDATE tickets SET status = ?, updated_at = ? WHERE id = ?`,
+		status, updatedAt.UTC().Format("2006-01-02 15:04:05"), ticketID,
+	); err != nil {
+		t.Fatalf("setTicketState: %v", err)
+	}
+}
+
+func readSessionFile(t *testing.T, dir string) string {
+	t.Helper()
+	data, err := os.ReadFile(filepath.Join(dir, ".tkt", "session"))
+	if err != nil {
+		t.Fatalf("readSessionFile: %v", err)
+	}
+	return strings.TrimSpace(string(data))
 }
 
 // TestE2E is the top-level test function containing all e2e scenarios.
@@ -960,7 +1044,7 @@ func TestE2E(t *testing.T) {
 	t.Run("cleanup_dry_run", func(t *testing.T) {
 		dir := t.TempDir()
 		initProject(t, dir)
-		// Seed a stale session (3 days ago — well past 48h threshold)
+		// Seed a stale session older than the 7-day expiry threshold.
 		seedStaleSession(t, dir, "stale-architect-001")
 		stdout, stderr, code := run(t, dir, "cleanup", "--dry-run")
 		if code != 0 {
@@ -997,9 +1081,723 @@ func TestE2E(t *testing.T) {
 		}
 	})
 
+	t.Run("new_with_description_tier_type_attention", func(t *testing.T) {
+		for _, tc := range []struct {
+			name  string
+			tier  string
+			title string
+		}{
+			{name: "critical", tier: "critical", title: "Critical ticket"},
+			{name: "standard", tier: "standard", title: "Standard ticket"},
+			{name: "low", tier: "low", title: "Low ticket"},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := t.TempDir()
+				initProject(t, dir)
+				createSession(t, dir, "architect")
+				stdout, stderr, code := run(t, dir, "new", tc.title,
+					"--description", "line one",
+					"--tier", tc.tier,
+					"--type", "feature",
+					"--attention", "42",
+				)
+				if code != 0 {
+					t.Fatalf("new failed: exit %d stdout=%q stderr=%q", code, stdout, stderr)
+				}
+				showOut, _, showCode := run(t, dir, "show", "1")
+				if showCode != 0 {
+					t.Fatalf("show failed: exit %d", showCode)
+				}
+				if !strings.Contains(showOut, tc.title) || !strings.Contains(showOut, "line one") {
+					t.Fatalf("show output missing created ticket fields: %q", showOut)
+				}
+				db := openDB(t, dir)
+				defer db.Close()
+				var tier, mainType string
+				var attention int
+				if err := db.QueryRow(`SELECT tier, main_type, attention_level FROM tickets WHERE id = 1`).Scan(&tier, &mainType, &attention); err != nil {
+					t.Fatalf("query ticket: %v", err)
+				}
+				if tier != tc.tier || mainType != "feature" || attention != 42 {
+					t.Fatalf("unexpected ticket metadata: tier=%q type=%q attention=%d", tier, mainType, attention)
+				}
+			})
+		}
+	})
+
+	t.Run("new_missing_title", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		_, stderr, code := run(t, dir, "new")
+		if code == 0 {
+			t.Fatal("expected non-zero exit when title is missing")
+		}
+		if !strings.Contains(strings.ToLower(stderr), "accepts 1 arg") {
+			t.Logf("stderr=%q", stderr)
+		}
+	})
+
+	t.Run("list_ready", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Resolved dependency")
+		createTicket(t, dir, "Ready after verified dep")
+		createTicket(t, dir, "Blocked ticket")
+		setTicketState(t, dir, 1, "VERIFIED", time.Now().Add(-3*time.Hour))
+		if _, _, code := run(t, dir, "depends", "2", "--on", "1"); code != 0 {
+			t.Fatal("depends 2 on 1 failed")
+		}
+		if _, _, code := run(t, dir, "depends", "3", "--on", "2"); code != 0 {
+			t.Fatal("depends 3 on 2 failed")
+		}
+		stdout, stderr, code := run(t, dir, "list", "--ready", "--all")
+		if code != 0 {
+			t.Fatalf("list --ready failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Ready after verified dep") {
+			t.Fatalf("ready list missing expected tickets: %q", stdout)
+		}
+		if strings.Contains(stdout, "Resolved dependency") || strings.Contains(stdout, "Blocked ticket") {
+			t.Fatalf("ready list should exclude verified and blocked tickets: %q", stdout)
+		}
+	})
+
+	t.Run("list_verified_and_archived", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Todo ticket")
+		createTicket(t, dir, "Verified ticket")
+		createTicket(t, dir, "Archived ticket")
+		setTicketState(t, dir, 2, "VERIFIED", time.Now().Add(-2*time.Hour))
+		setTicketState(t, dir, 3, "ARCHIVED", time.Now().Add(-time.Hour))
+
+		baseOut, _, _ := run(t, dir, "list", "--all")
+		if strings.Contains(baseOut, "Verified ticket") || strings.Contains(baseOut, "Archived ticket") {
+			t.Fatalf("default list should hide verified/archived tickets: %q", baseOut)
+		}
+
+		verifiedOut, _, code := run(t, dir, "list", "--verified", "--all")
+		if code != 0 {
+			t.Fatalf("list --verified failed")
+		}
+		if !strings.Contains(verifiedOut, "Verified ticket") {
+			t.Fatalf("verified ticket missing: %q", verifiedOut)
+		}
+
+		archivedOut, _, code := run(t, dir, "list", "--archived", "--all")
+		if code != 0 {
+			t.Fatalf("list --archived failed")
+		}
+		if !strings.Contains(archivedOut, "Archived ticket") {
+			t.Fatalf("archived ticket missing: %q", archivedOut)
+		}
+	})
+
+	t.Run("list_limit_and_sort", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Oldest")
+		createTicket(t, dir, "Middle")
+		createTicket(t, dir, "Newest")
+		setTicketState(t, dir, 1, "TODO", time.Now().Add(-3*time.Hour))
+		setTicketState(t, dir, 2, "TODO", time.Now().Add(-2*time.Hour))
+		setTicketState(t, dir, 3, "TODO", time.Now().Add(-time.Hour))
+
+		limitOut, _, code := run(t, dir, "list", "--limit", "2")
+		if code != 0 {
+			t.Fatalf("list --limit failed")
+		}
+		if strings.Count(limitOut, "#") != 2 {
+			t.Fatalf("expected 2 tickets with --limit 2, got output %q", limitOut)
+		}
+
+		updatedOut, _, code := run(t, dir, "list", "--all", "--sort", "updated")
+		if code != 0 {
+			t.Fatalf("list --sort updated failed")
+		}
+		if !(strings.Index(updatedOut, "Newest") < strings.Index(updatedOut, "Middle") &&
+			strings.Index(updatedOut, "Middle") < strings.Index(updatedOut, "Oldest")) {
+			t.Fatalf("updated sort order wrong: %q", updatedOut)
+		}
+
+		idOut, _, code := run(t, dir, "list", "--all", "--sort", "id")
+		if code != 0 {
+			t.Fatalf("list --sort id failed")
+		}
+		if !(strings.Index(idOut, "Newest") < strings.Index(idOut, "Middle") &&
+			strings.Index(idOut, "Middle") < strings.Index(idOut, "Oldest")) {
+			t.Fatalf("id sort order wrong: %q", idOut)
+		}
+	})
+
+	t.Run("list_invalid_sort_and_status", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		if _, stderr, code := run(t, dir, "list", "--sort", "priority"); code == 0 || !strings.Contains(stderr, "invalid --sort") {
+			t.Fatalf("expected invalid --sort error, got code=%d stderr=%q", code, stderr)
+		}
+		if _, stderr, code := run(t, dir, "list", "--status", "BROKEN"); code == 0 || !strings.Contains(stderr, "invalid --status") {
+			t.Fatalf("expected invalid --status error, got code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("show_hash_id_variant", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Hash show ticket")
+		stdout, stderr, code := run(t, dir, "show", "#1")
+		if code != 0 {
+			t.Fatalf("show #1 failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Hash show ticket") {
+			t.Fatalf("show output missing title: %q", stdout)
+		}
+	})
+
+	t.Run("advance_invalid_to", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Bad advance target")
+		_, stderr, code := run(t, dir, "advance", "1", "--note", "bad", "--to", "LATER")
+		if code == 0 || !strings.Contains(stderr, "invalid --to") {
+			t.Fatalf("expected invalid --to error, got code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("advance_multi_id_success", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Ticket one")
+		createTicket(t, dir, "Ticket two")
+		stdout, stderr, code := run(t, dir, "advance", "1,2", "--note", "to planning")
+		if code != 0 {
+			t.Fatalf("advance multi-id failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "#1  TODO → PLANNING") || !strings.Contains(stdout, "#2  TODO → PLANNING") {
+			t.Fatalf("missing multi-id transition output: %q", stdout)
+		}
+	})
+
+	t.Run("advance_multi_id_partial_failure", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Real ticket")
+		stdout, stderr, code := run(t, dir, "advance", "1,999", "--note", "partial")
+		if code == 0 {
+			t.Fatalf("expected partial failure exit, stdout=%q stderr=%q", stdout, stderr)
+		}
+		if ticketStatus(t, dir, 1) != "PLANNING" {
+			t.Fatalf("expected valid ticket to advance despite partial failure, got %s", ticketStatus(t, dir, 1))
+		}
+		if !strings.Contains(stderr, "1 error(s)") || !strings.Contains(stderr, "#999") {
+			t.Fatalf("partial failure stderr missing details: %q", stderr)
+		}
+	})
+
+	t.Run("plan_body_stdin_file", func(t *testing.T) {
+		for _, tc := range []struct {
+			name   string
+			runCmd func(t *testing.T, dir string) (string, string, int)
+		}{
+			{
+				name: "body",
+				runCmd: func(t *testing.T, dir string) (string, string, int) {
+					return run(t, dir, "plan", "1", "--body", "Plan from body")
+				},
+			},
+			{
+				name: "stdin",
+				runCmd: func(t *testing.T, dir string) (string, string, int) {
+					return runWithInput(t, dir, "Plan from stdin\n", "plan", "1", "--stdin")
+				},
+			},
+			{
+				name: "file",
+				runCmd: func(t *testing.T, dir string) (string, string, int) {
+					path := createTempFile(t, dir, "plan-*.md", "Plan from file\n")
+					return run(t, dir, "plan", "1", "--file", path)
+				},
+			},
+		} {
+			t.Run(tc.name, func(t *testing.T) {
+				dir := t.TempDir()
+				initProject(t, dir)
+				createSession(t, dir, "implementer")
+				createTicket(t, dir, "Plan ticket")
+				advanceTicket(t, dir, "1", "into planning")
+				stdout, stderr, code := tc.runCmd(t, dir)
+				if code != 0 {
+					t.Fatalf("plan failed: stdout=%q stderr=%q", stdout, stderr)
+				}
+				showOut, _, _ := run(t, dir, "show", "1")
+				if !strings.Contains(showOut, "Plan from") {
+					t.Fatalf("show missing saved plan: %q", showOut)
+				}
+			})
+		}
+	})
+
+	t.Run("comment_empty_body", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Empty comment")
+		_, stderr, code := run(t, dir, "comment", "1", "")
+		if code == 0 {
+			t.Fatal("expected empty comment to fail")
+		}
+		if !strings.Contains(strings.ToLower(stderr), "empty") {
+			t.Logf("stderr=%q", stderr)
+		}
+	})
+
+	t.Run("log_all_flags_and_show_human_session_name", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		stdout, stderr, code := run(t, dir, "session", "--role", "architect", "--name", "stone-review")
+		if code != 0 {
+			t.Fatalf("session --name failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		createTicket(t, dir, "Usage ticket")
+		stdout, stderr, code = run(t, dir, "log", "1", "--tokens", "1234", "--tools", "5", "--duration", "9", "--agent", "cave-implementer", "--label", "smoke")
+		if code != 0 {
+			t.Fatalf("log failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "#1  logged 1,234 tokens, 5 tools, 9s") {
+			t.Fatalf("unexpected log output: %q", stdout)
+		}
+		showOut, _, _ := run(t, dir, "show", "1")
+		if !strings.Contains(showOut, "stone-review") {
+			t.Fatalf("show should render human session name: %q", showOut)
+		}
+		if strings.Contains(showOut, readSessionFile(t, dir)) {
+			t.Fatalf("show should not render session ULID in usage rows: %q", showOut)
+		}
+	})
+
+	t.Run("log_tokens_zero_fails", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Zero tokens")
+		_, stderr, code := run(t, dir, "log", "1", "--tokens", "0")
+		if code == 0 || !strings.Contains(stderr, "--tokens is required and must be > 0") {
+			t.Fatalf("expected --tokens validation error, got code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("depends_nonexistent_dependency", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Main ticket")
+		_, stderr, code := run(t, dir, "depends", "1", "--on", "999")
+		if code == 0 {
+			t.Fatal("expected missing dependency to fail")
+		}
+		if !strings.Contains(strings.ToLower(stderr), "not found") {
+			t.Logf("stderr=%q", stderr)
+		}
+	})
+
+	t.Run("context_missing_title_and_body", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "implementer")
+		if _, stderr, code := run(t, dir, "context", "add", "", "body"); code == 0 || !strings.Contains(strings.ToLower(stderr), "title") {
+			t.Fatalf("expected missing title error, got code=%d stderr=%q", code, stderr)
+		}
+		if _, stderr, code := run(t, dir, "context", "add", "title", ""); code == 0 || !strings.Contains(strings.ToLower(stderr), "body") {
+			t.Fatalf("expected missing body error, got code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("doc_body_stdin_file_read_archive_and_list_archived", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "implementer")
+		if _, stderr, code := run(t, dir, "doc", "add", "body-doc", "--body", "# 001 — Body doc\n\n**Type:** summary\n**Date:** 2026-04-24\n**By:** implementer\n\n---\n\nbody payload\n"); code != 0 {
+			t.Fatalf("doc add --body failed: %q", stderr)
+		}
+		if _, stderr, code := runWithInput(t, dir, "# 002 — Stdin doc\n\n**Type:** summary\n**Date:** 2026-04-24\n**By:** implementer\n\n---\n\nstdin payload\n", "doc", "add", "stdin-doc", "--stdin"); code != 0 {
+			t.Fatalf("doc add --stdin failed: %q", stderr)
+		}
+		filePath := createTempFile(t, dir, "doc-*.md", "# 003 — File doc\n\n**Type:** summary\n**Date:** 2026-04-24\n**By:** implementer\n\n---\n\nfile payload\n")
+		if _, stderr, code := run(t, dir, "doc", "add", "file-doc", "--file", filePath); code != 0 {
+			t.Fatalf("doc add --file failed: %q", stderr)
+		}
+
+		readOut, stderr, code := run(t, dir, "doc", "read", "stdin-doc")
+		if code != 0 {
+			t.Fatalf("doc read failed: stdout=%q stderr=%q", readOut, stderr)
+		}
+		if !strings.Contains(readOut, "stdin payload") {
+			t.Fatalf("doc read missing content: %q", readOut)
+		}
+
+		if _, stderr, code := run(t, dir, "doc", "archive", "body-doc"); code != 0 {
+			t.Fatalf("doc archive failed: %q", stderr)
+		}
+		listOut, _, _ := run(t, dir, "doc", "list")
+		if strings.Contains(listOut, "body-doc") {
+			t.Fatalf("archived doc should not appear in active list: %q", listOut)
+		}
+		archivedOut, _, _ := run(t, dir, "doc", "list", "--archived")
+		if !strings.Contains(archivedOut, "Body doc") {
+			t.Fatalf("archived doc missing from archived list: %q", archivedOut)
+		}
+	})
+
+	t.Run("batch_default_and_n", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		for i := 1; i <= 8; i++ {
+			createTicket(t, dir, fmt.Sprintf("Batch ticket %d", i))
+		}
+		stdout, stderr, code := run(t, dir, "batch")
+		if code != 0 {
+			t.Fatalf("batch default failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Phase 1") || !strings.Contains(stdout, "#8") {
+			t.Fatalf("default batch should show first phase content, got %q", stdout)
+		}
+		stdout, stderr, code = run(t, dir, "batch", "--n", "3")
+		if code != 0 {
+			t.Fatalf("batch --n failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if strings.Count(stdout, "Phase ") > 3 {
+			t.Fatalf("batch --n 3 should cap phases, got %q", stdout)
+		}
+	})
+
+	t.Run("session_name_and_uniqueness", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		stdout, stderr, code := run(t, dir, "session", "--role", "architect", "--name", "cave-chief")
+		if code != 0 {
+			t.Fatalf("session --name failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Name: cave-chief") {
+			t.Fatalf("session output missing explicit name: %q", stdout)
+		}
+		sessionID := readSessionFile(t, dir)
+		id, name := latestSession(t, dir)
+		if id != sessionID || name != "cave-chief" {
+			t.Fatalf("session file/row mismatch: file=%q rowID=%q rowName=%q", sessionID, id, name)
+		}
+
+		if _, stderr, code := run(t, dir, "session", "--role", "architect", "--name", "Bad_Name"); code == 0 || !strings.Contains(stderr, "invalid name") {
+			t.Fatalf("expected invalid explicit name error, got code=%d stderr=%q", code, stderr)
+		}
+		if _, stderr, code := run(t, dir, "session", "--name", "lonely"); code == 0 || !strings.Contains(stderr, "--name requires --role") {
+			t.Fatalf("expected --name requires --role error, got code=%d stderr=%q", code, stderr)
+		}
+
+		autoDir := t.TempDir()
+		initProject(t, autoDir)
+		for i := 0; i < 12; i++ {
+			if _, _, code := run(t, autoDir, "session", "--role", "architect"); code != 0 {
+				t.Fatalf("auto session %d failed", i)
+			}
+		}
+		db := openDB(t, autoDir)
+		defer db.Close()
+		var total, distinct int
+		if err := db.QueryRow(`SELECT COUNT(*), COUNT(DISTINCT name) FROM sessions`).Scan(&total, &distinct); err != nil {
+			t.Fatalf("query unique session names: %v", err)
+		}
+		if total != distinct {
+			t.Fatalf("expected unique human session names, got total=%d distinct=%d", total, distinct)
+		}
+	})
+
+	t.Run("role_create_list_delete_and_failures", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		if _, stderr, code := run(t, dir, "role", "create", "scribe", "--like", "architect"); code != 0 {
+			t.Fatalf("create architect-like role failed: %q", stderr)
+		}
+		if _, stderr, code := run(t, dir, "role", "create", "miner", "--like", "implementer"); code != 0 {
+			t.Fatalf("create implementer-like role failed: %q", stderr)
+		}
+		listOut, _, code := run(t, dir, "role", "list")
+		if code != 0 {
+			t.Fatalf("role list failed")
+		}
+		if !strings.Contains(listOut, "scribe") || !strings.Contains(listOut, "miner") {
+			t.Fatalf("role list missing custom roles: %q", listOut)
+		}
+		if _, stderr, code := run(t, dir, "session", "--role", "scribe"); code != 0 {
+			t.Fatalf("create session with custom role failed: %q", stderr)
+		}
+		if _, stderr, code := run(t, dir, "role", "delete", "scribe"); code == 0 || !strings.Contains(stderr, "in use") {
+			t.Fatalf("expected in-use role delete failure, got code=%d stderr=%q", code, stderr)
+		}
+		if _, stderr, code := run(t, dir, "role", "delete", "architect"); code == 0 || !strings.Contains(stderr, "built-in") {
+			t.Fatalf("expected built-in role delete failure, got code=%d stderr=%q", code, stderr)
+		}
+		if _, stderr, code := run(t, dir, "session", "--role", "architect"); code != 0 {
+			t.Fatalf("switch session failed: %q", stderr)
+		}
+		if _, stderr, code := run(t, dir, "role", "delete", "miner"); code != 0 {
+			t.Fatalf("delete unused custom role failed: %q", stderr)
+		}
+	})
+
+	t.Run("cleanup_purges_expired_sessions_but_keeps_ticket_log_rows", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Cleanup retention")
+		oldLastActive := time.Now().Add(-16 * 24 * time.Hour)
+		oldExpired := time.Now().Add(-8 * 24 * time.Hour)
+		seedSession(t, dir, "purge-me", "purged-human", "architect", oldLastActive, &oldExpired)
+
+		db := openDB(t, dir)
+		if _, err := db.Exec(
+			`INSERT INTO ticket_log (ticket_id, session_name, kind, body, created_at) VALUES (?, ?, 'message', ?, datetime('now', '-8 days'))`,
+			1, "purged-human", "keep this row",
+		); err != nil {
+			db.Close()
+			t.Fatalf("insert ticket_log row: %v", err)
+		}
+		db.Close()
+
+		stdout, stderr, code := run(t, dir, "cleanup")
+		if code != 0 {
+			t.Fatalf("cleanup failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+
+		db = openDB(t, dir)
+		defer db.Close()
+		var sessionCount, logCount int
+		if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = 'purge-me'`).Scan(&sessionCount); err != nil {
+			t.Fatalf("query purged session: %v", err)
+		}
+		if err := db.QueryRow(`SELECT COUNT(*) FROM ticket_log WHERE session_name = 'purged-human' AND body = 'keep this row'`).Scan(&logCount); err != nil {
+			t.Fatalf("query retained log row: %v", err)
+		}
+		if sessionCount != 0 || logCount != 1 {
+			t.Fatalf("expected purged session and retained log row, got sessions=%d logs=%d", sessionCount, logCount)
+		}
+	})
+
+	t.Run("search_happy_path_title_all_status", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Alpha cave")
+		if _, _, code := run(t, dir, "new", "Beta board", "--description", "alpha hidden in description"); code != 0 {
+			t.Fatal("second ticket create failed")
+		}
+		createTicket(t, dir, "Gamma archived")
+		setTicketState(t, dir, 3, "ARCHIVED", time.Now().Add(-time.Hour))
+		setTicketState(t, dir, 2, "DONE", time.Now().Add(-2*time.Hour))
+
+		stdout, stderr, code := run(t, dir, "search", "alpha")
+		if code != 0 {
+			t.Fatalf("search failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Alpha cave") || !strings.Contains(stdout, "Beta board") {
+			t.Fatalf("search should match title and description: %q", stdout)
+		}
+
+		titleOnlyOut, _, _ := run(t, dir, "search", "alpha", "--title")
+		if strings.Contains(titleOnlyOut, "Beta board") || !strings.Contains(titleOnlyOut, "Alpha cave") {
+			t.Fatalf("title-only search wrong: %q", titleOnlyOut)
+		}
+
+		allOut, _, _ := run(t, dir, "search", "archived", "--all")
+		if !strings.Contains(allOut, "Gamma archived") {
+			t.Fatalf("search --all should include archived ticket: %q", allOut)
+		}
+
+		statusOut, _, _ := run(t, dir, "search", "beta", "--status", "DONE")
+		if !strings.Contains(statusOut, "Beta board") {
+			t.Fatalf("search --status DONE missing ticket: %q", statusOut)
+		}
+	})
+
 	// -------------------------------------------------------------------------
 	// Group 12: Monitor (skipped — interactive TUI)
 	// -------------------------------------------------------------------------
+
+	t.Run("stats_basic_and_filters", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "implementer")
+		seedStatsE2EData(t, dir)
+
+		stdout, stderr, code := run(t, dir, "stats")
+		if code != 0 {
+			t.Fatalf("stats failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Scope: default last 24 hours, all ticket types and statuses") {
+			t.Fatalf("stats default scope missing: %q", stdout)
+		}
+		for _, section := range []string{"Overview", "Cycle Time", "Throughput", "Resource Burn", "Distribution"} {
+			if !strings.Contains(stdout, section) {
+				t.Fatalf("stats output missing %q: %q", section, stdout)
+			}
+		}
+		if !strings.Contains(stdout, "Total: 4") || !strings.Contains(stdout, "Verified: 1") || !strings.Contains(stdout, "Archived: 1") {
+			t.Fatalf("stats output missing expected counts: %q", stdout)
+		}
+
+		stdout, stderr, code = run(t, dir, "stats", "--status", "DONE")
+		if code != 0 {
+			t.Fatalf("stats --status DONE failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Total: 1") || !strings.Contains(stdout, "Done: 1") {
+			t.Fatalf("stats --status DONE wrong output: %q", stdout)
+		}
+
+		stdout, stderr, code = run(t, dir, "stats", "--tier", "critical", "--type", "feature")
+		if code != 0 {
+			t.Fatalf("stats tier/type failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, "Total: 1") || !strings.Contains(stdout, "critical: 1") {
+			t.Fatalf("stats tier/type wrong output: %q", stdout)
+		}
+
+		_, stderr, code = run(t, dir, "stats", "--status", "NOPE")
+		if code == 0 || !strings.Contains(stderr, "invalid --status") {
+			t.Fatalf("stats invalid status should fail: code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("update_type_attention", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "implementer")
+		createTicket(t, dir, "Update me")
+
+		stdout, stderr, code := run(t, dir, "update", "1", "--type", "bugfix", "--attention", "42")
+		if code != 0 {
+			t.Fatalf("update failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		mainType, attention := ticketTypeAttention(t, dir, 1)
+		if mainType != "bugfix" || attention != 42 {
+			t.Fatalf("ticket metadata = (%q, %d), want (bugfix, 42)", mainType, attention)
+		}
+
+		_, stderr, code = run(t, dir, "update", "1", "--attention", "100")
+		if code == 0 || !strings.Contains(stderr, "attention") {
+			t.Fatalf("invalid attention should fail: code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("tier_change", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "implementer")
+		createTicket(t, dir, "Tier me")
+
+		stdout, stderr, code := run(t, dir, "tier", "1", "critical")
+		if code != 0 {
+			t.Fatalf("tier failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if tier := ticketTier(t, dir, 1); tier != "critical" {
+			t.Fatalf("ticket tier = %q, want critical", tier)
+		}
+		_, stderr, code = run(t, dir, "tier", "1", "urgent")
+		if code == 0 || !strings.Contains(stderr, "invalid tier") {
+			t.Fatalf("invalid tier should fail: code=%d stderr=%q", code, stderr)
+		}
+	})
+
+	t.Run("archive_ticket_and_list_archived", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Archive me")
+		setTicketState(t, dir, 1, "VERIFIED", time.Now())
+
+		stdout, stderr, code := run(t, dir, "archive", "1")
+		if code != 0 {
+			t.Fatalf("archive failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if status := ticketStatus(t, dir, 1); status != "ARCHIVED" {
+			t.Fatalf("ticket status = %q, want ARCHIVED", status)
+		}
+		stdout, _, code = run(t, dir, "list", "--all")
+		if code != 0 {
+			t.Fatalf("list --all failed")
+		}
+		if strings.Contains(stdout, "Archive me") {
+			t.Fatalf("archived ticket should be hidden without --archived: %q", stdout)
+		}
+		stdout, stderr, code = run(t, dir, "list", "--archived", "--all")
+		if code != 0 {
+			t.Fatalf("list --archived failed: %q", stderr)
+		}
+		if !strings.Contains(stdout, "Archive me") {
+			t.Fatalf("archived ticket missing from list --archived: %q", stdout)
+		}
+	})
+
+	t.Run("mcp_stdio_smoke", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		defer cancel()
+
+		cmd := exec.CommandContext(ctx, tktBin, "mcp", "--readonly")
+		cmd.Dir = dir
+		cmd.Env = append(os.Environ(), "HOME=/dev/null", "EDITOR=true")
+		stdin, err := cmd.StdinPipe()
+		if err != nil {
+			t.Fatalf("stdin pipe: %v", err)
+		}
+		stdoutPipe, err := cmd.StdoutPipe()
+		if err != nil {
+			t.Fatalf("stdout pipe: %v", err)
+		}
+		stderrPipe, err := cmd.StderrPipe()
+		if err != nil {
+			t.Fatalf("stderr pipe: %v", err)
+		}
+		if err := cmd.Start(); err != nil {
+			t.Fatalf("start mcp: %v", err)
+		}
+		defer cmd.Process.Kill()
+
+		requests := strings.Join([]string{
+			`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2024-11-05","capabilities":{},"clientInfo":{"name":"e2e","version":"test"}}}`,
+			`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`,
+			`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{}}`,
+		}, "\n") + "\n"
+		if _, err := io.WriteString(stdin, requests); err != nil {
+			t.Fatalf("write mcp requests: %v", err)
+		}
+
+		scanner := bufio.NewScanner(stdoutPipe)
+		var lines []string
+		for scanner.Scan() {
+			line := scanner.Text()
+			lines = append(lines, line)
+			if strings.Contains(line, `"id":2`) {
+				break
+			}
+		}
+		if err := scanner.Err(); err != nil {
+			t.Fatalf("read mcp stdout: %v", err)
+		}
+		combined := strings.Join(lines, "\n")
+		if !strings.Contains(combined, `"name":"tkt_list_tickets"`) || !strings.Contains(combined, `"name":"tkt_stats"`) {
+			stderrData, _ := io.ReadAll(stderrPipe)
+			t.Fatalf("tools/list missing expected tools. stdout=%q stderr=%q", combined, string(stderrData))
+		}
+	})
 
 	t.Run("monitor_skipped", func(t *testing.T) {
 		t.Skip("tkt monitor launches an interactive TUI — not testable headlessly")
@@ -1047,6 +1845,101 @@ func TestE2E(t *testing.T) {
 	})
 }
 
+func ticketTier(t *testing.T, dir string, ticketID int64) string {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+	var tier string
+	if err := db.QueryRow(`SELECT tier FROM tickets WHERE id = ?`, ticketID).Scan(&tier); err != nil {
+		t.Fatalf("ticketTier: %v", err)
+	}
+	return tier
+}
+
+func ticketTypeAttention(t *testing.T, dir string, ticketID int64) (string, int) {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+	var mainType string
+	var attention int
+	if err := db.QueryRow(`SELECT main_type, attention_level FROM tickets WHERE id = ?`, ticketID).Scan(&mainType, &attention); err != nil {
+		t.Fatalf("ticketTypeAttention: %v", err)
+	}
+	return mainType, attention
+}
+
+func seedStatsE2EData(t *testing.T, dir string) {
+	t.Helper()
+	db := openDB(t, dir)
+	defer db.Close()
+
+	createdBase := time.Now().UTC().Add(-72 * time.Hour)
+	activityBase := time.Now().UTC().Add(-6 * time.Hour)
+	tickets := []struct {
+		title     string
+		status    string
+		tier      string
+		mainType  string
+		createdBy string
+		createdAt time.Time
+		updatedAt time.Time
+	}{
+		{"Stats todo", "TODO", "standard", "feature", "alice", createdBase, activityBase},
+		{"Stats done", "DONE", "critical", "feature", "alice", createdBase.Add(time.Hour), activityBase.Add(time.Hour)},
+		{"Stats verified", "VERIFIED", "standard", "bugfix", "bob", createdBase.Add(2 * time.Hour), activityBase.Add(2 * time.Hour)},
+		{"Stats archived", "ARCHIVED", "low", "docs", "carol", createdBase.Add(3 * time.Hour), activityBase.Add(3 * time.Hour)},
+	}
+
+	ids := make([]int64, 0, len(tickets))
+	for _, tk := range tickets {
+		res, err := db.Exec(
+			`INSERT INTO tickets (title, description, status, tier, main_type, created_by, created_at, updated_at)
+			 VALUES (?, '', ?, ?, ?, ?, ?, ?)`,
+			tk.title, tk.status, tk.tier, tk.mainType, tk.createdBy, tk.createdAt, tk.updatedAt,
+		)
+		if err != nil {
+			t.Fatalf("seedStatsE2EData insert %q: %v", tk.title, err)
+		}
+		id, _ := res.LastInsertId()
+		ids = append(ids, id)
+	}
+
+	transitions := []struct {
+		id int64
+		at time.Time
+	}{
+		{ids[1], activityBase.Add(time.Hour)},
+		{ids[2], activityBase.Add(2 * time.Hour)},
+		{ids[3], activityBase.Add(3 * time.Hour)},
+	}
+	for _, tr := range transitions {
+		if _, err := db.Exec(
+			`INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, created_at)
+			 VALUES (?, 'stats-e2e', 'transition', 'done', 'IN_PROGRESS', 'DONE', ?)`,
+			tr.id, tr.at,
+		); err != nil {
+			t.Fatalf("seedStatsE2EData transition: %v", err)
+		}
+	}
+	if _, err := db.Exec(
+		`INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, created_at)
+		 VALUES (?, 'stats-e2e', 'transition', 'verified', 'DONE', 'VERIFIED', ?)`,
+		ids[2], activityBase.Add(4*time.Hour),
+	); err != nil {
+		t.Fatalf("seedStatsE2EData verified transition: %v", err)
+	}
+
+	for i, id := range ids {
+		if _, err := db.Exec(
+			`INSERT INTO ticket_usage (ticket_id, session_name, tokens, tools, duration_ms, agent, label, created_at)
+			 VALUES (?, 'stats-e2e', ?, ?, ?, 'implementer', 'e2e', ?)`,
+			id, 100*(i+1), i+1, 1000*(i+1), activityBase.Add(time.Duration(i)*time.Hour),
+		); err != nil {
+			t.Fatalf("seedStatsE2EData usage: %v", err)
+		}
+	}
+}
+
 // injectPlan inserts a plan log entry directly into the DB for the given ticket ID.
 // This is needed when EDITOR=true (stub) prevents writing actual content.
 func injectPlan(t *testing.T, dir string, ticketID int64) {
@@ -1054,25 +1947,26 @@ func injectPlan(t *testing.T, dir string, ticketID int64) {
 	db := openDB(t, dir)
 	defer db.Close()
 
-	// Get or create a session to use as the plan author
-	var sessID string
+	// Get or create a session to use as the plan author.
+	// ticket_log now stores human session_name, not session_id.
+	var sessName string
 	err := db.QueryRow(
-		`SELECT id FROM sessions WHERE expired_at IS NULL ORDER BY created_at DESC LIMIT 1`,
-	).Scan(&sessID)
+		`SELECT name FROM sessions WHERE expired_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1`,
+	).Scan(&sessName)
 	if err != nil {
 		// Create a throwaway session
-		sessID = "plan-injector-session"
+		sessName = "plan-injector-session"
 		db.Exec(
 			`INSERT OR IGNORE INTO sessions (id, role, name, created_at, last_active)
 			 VALUES (?, 'implementer', ?, datetime('now'), datetime('now'))`,
-			sessID, sessID,
+			"plan-injector-ulid", sessName,
 		)
 	}
 
 	_, err = db.Exec(
-		`INSERT INTO ticket_log (ticket_id, kind, body, session_id, created_at)
+		`INSERT INTO ticket_log (ticket_id, kind, body, session_name, created_at)
 		 VALUES (?, 'plan', '## Injected Plan\n\n- Step 1\n- Step 2\n\nTest plan.\n', ?, datetime('now'))`,
-		ticketID, sessID,
+		ticketID, sessName,
 	)
 	if err != nil {
 		t.Fatalf("injectPlan: insert log entry: %v", err)
