@@ -81,7 +81,7 @@ func runLog(cmd *cobra.Command, args []string) error {
 		if err := usage.Append(
 			context.Background(),
 			t.ID,
-			sess.ID,
+			sess.Name,
 			logTokens,
 			logTools,
 			logDuration*1000,
@@ -115,4 +115,3 @@ func runLog(cmd *cobra.Command, args []string) error {
 	}
 	return nil
 }
-

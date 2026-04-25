@@ -24,6 +24,8 @@ func TestOpen_NewFile(t *testing.T) {
 	expectedTables := []string{
 		"tickets",
 		"ticket_log",
+		"ticket_usage",
+		"ticket_dependencies",
 		"sessions",
 		"project_context",
 	}
@@ -74,9 +76,14 @@ func TestOpen_NewFile(t *testing.T) {
 	expectedIndexes := []string{
 		"idx_tickets_status",
 		"idx_tickets_deleted_at",
+		"idx_tickets_status_deleted_at",
 		"idx_ticket_log_ticket_id",
 		"idx_ticket_log_kind",
 		"idx_ticket_log_deleted_at",
+		"idx_ticket_log_ticket_id_kind",
+		"idx_ticket_usage_ticket_id_deleted_at",
+		"idx_ticket_dependencies_depends_on",
+		"idx_sessions_expired_at",
 		"idx_project_context_deleted_at",
 	}
 	for _, idx := range expectedIndexes {
@@ -210,8 +217,8 @@ func TestOpen_SchemaVersion(t *testing.T) {
 	if err := db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 14 {
-		t.Errorf("schema_version = %d, want 14", version)
+	if version != 18 {
+		t.Errorf("schema_version = %d, want 18", version)
 	}
 
 	// Ensure exactly one row in schema_version.

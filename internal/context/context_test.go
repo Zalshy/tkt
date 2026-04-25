@@ -25,8 +25,8 @@ func setupDB(t *testing.T) (root string, sqlDB *sql.DB) {
 	}
 	t.Cleanup(func() { sqlDB.Close() })
 	if _, err := sqlDB.Exec(
-		`INSERT INTO sessions (id, role, name) VALUES (?, 'implementer', 'test')`,
-		testSessionID,
+		`INSERT INTO sessions (id, role, name) VALUES (?, 'implementer', ?)`,
+		testSessionID, testSessionID,
 	); err != nil {
 		t.Fatalf("insert test session: %v", err)
 	}
@@ -34,7 +34,7 @@ func setupDB(t *testing.T) (root string, sqlDB *sql.DB) {
 }
 
 func makeActor() *models.Session {
-	return &models.Session{ID: testSessionID, Role: models.RoleImplementer}
+	return &models.Session{ID: testSessionID, Name: testSessionID, Role: models.RoleImplementer}
 }
 
 func TestAdd_Roundtrip(t *testing.T) {

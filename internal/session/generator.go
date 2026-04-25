@@ -6,6 +6,8 @@ import (
 	"fmt"
 	mrand "math/rand"
 	"regexp"
+
+	"github.com/oklog/ulid/v2"
 )
 
 // wordlist is the pool from which random session IDs are drawn.
@@ -34,14 +36,13 @@ var namePattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?$`)
 // consecutiveHyphens matches two or more hyphens in a row.
 var consecutiveHyphens = regexp.MustCompile(`--`)
 
-// GenerateID returns a session ID.
-//
-// If name is non-empty it is returned as-is (caller must have already validated it
-// via ValidateName). If name is empty a random word is drawn from the wordlist.
-//
-// This function does NOT guarantee uniqueness — collision handling is the
-// responsibility of Create, which retries on PK constraint errors.
-func GenerateID(name string) string {
+// GenerateULID returns a new session ID.
+func GenerateULID() string {
+	return ulid.Make().String()
+}
+
+// GenerateName returns a user-supplied session name or a random word.
+func GenerateName(name string) string {
 	if name != "" {
 		return name
 	}

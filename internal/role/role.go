@@ -116,8 +116,13 @@ func Delete(name string, db *sql.DB) error {
 	if isBuiltin == 1 {
 		return fmt.Errorf("role.Delete: %w", ErrBuiltIn)
 	}
-	if _, err := db.Exec(`UPDATE sessions SET expired_at = datetime('now') WHERE role = ? AND expired_at IS NULL`, name); err != nil {
-		return fmt.Errorf("role.Delete: expire sessions: %w", err)
+
+	var activeCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM sessions WHERE role = ? AND expired_at IS NULL`, name).Scan(&activeCount); err != nil {
+		return fmt.Errorf("role.Delete: active session check: %w", err)
+	}
+	if activeCount > 0 {
+		return fmt.Errorf("role.Delete: %w", ErrInUse)
 	}
 	if _, err := db.Exec(`DELETE FROM roles WHERE name = ?`, name); err != nil {
 		return fmt.Errorf("role.Delete: exec: %w", err)

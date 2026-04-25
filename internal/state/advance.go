@@ -35,21 +35,21 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	if err != nil {
 		return fmt.Errorf("state.Execute: get log: %w", err)
 	}
-	var submitterID string
+	var submitterName string
 	for i := len(entries) - 1; i >= 0; i-- {
 		if entries[i].Kind == "transition" {
-			submitterID = entries[i].SessionID
+			submitterName = entries[i].SessionName
 			break
 		}
 	}
-	if submitterID == "" {
-		submitterID = t.CreatedBy
+	if submitterName == "" {
+		submitterName = t.CreatedBy
 	}
-	// submitter is a partial Session — only ID is set. All other fields (EffectiveRole,
-	// Role, Name) are zero values. ValidateTransition currently reads submitter.ID only
+	// submitter is a partial Session — only Name is set. All other fields (EffectiveRole,
+	// Role, ID) are zero values. ValidateTransition currently reads submitter.Name only
 	// (isolation check). Do NOT access any other field on submitter without first
 	// populating it here or rethinking the lookup strategy.
-	submitter := &models.Session{ID: submitterID}
+	submitter := &models.Session{Name: submitterName}
 
 	// Step 3: resolve target state when to is zero value.
 	if to == "" {

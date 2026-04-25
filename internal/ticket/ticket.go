@@ -49,7 +49,7 @@ func Create(title, description, tier string, actor *models.Session, db *sql.DB, 
 	result, err := db.Exec(
 		`INSERT INTO tickets (title, description, status, tier, created_by, main_type, attention_level)
 		 VALUES (?, ?, 'TODO', ?, ?, ?, ?)`,
-		title, description, tier, actor.ID, mainType, attentionLevel,
+		title, description, tier, actor.Name, mainType, attentionLevel,
 	)
 	if err != nil {
 		return nil, fmt.Errorf("ticket.Create: insert: %w", err)
