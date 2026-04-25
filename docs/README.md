@@ -17,6 +17,7 @@ Per-command documentation with all flags, defaults, and behaviour notes.
 | [tier.md](tier.md) | `tkt tier` | Set the tier of a ticket |
 | [update.md](update.md) | `tkt update` | Update ticket metadata (type, attention) |
 | [log.md](log.md) | `tkt log` | Record token/tool usage against a ticket |
+| [stats.md](stats.md) | `tkt stats` | Show activity-based project statistics |
 | [search.md](search.md) | `tkt search` | Full-text search across tickets |
 | [context.md](context.md) | `tkt context` | Manage project context entries |
 | [role.md](role.md) | `tkt role` | Manage custom roles |

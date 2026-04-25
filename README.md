@@ -70,6 +70,7 @@ tkt doc add/list/read/archive       Manage documents
 tkt doc add <slug> --body/--stdin/--file  Create a document non-interactively
 tkt search <query>                  Substring search across ticket titles and descriptions
 tkt log <id> --tokens N             Record token/tool/duration usage against a ticket
+tkt stats                           Show activity-based project statistics
 tkt archive <id>                    Archive a VERIFIED ticket (terminal state)
 tkt cleanup                         Expire stale sessions and run maintenance
 tkt monitor                         Read-only TUI dashboard (auto-refreshes every 5s)
@@ -104,6 +105,18 @@ DONE          Implementer executes
 VERIFIED      Architect verifies
 ```
 
+## Stats
+
+`tkt stats` shows activity-based project analytics: overview counts, cycle time, throughput, resource burn, and distribution by status/tier/type.
+
+With no flags, stats analyzes the last 24 hours of activity across all ticket types and statuses. `--since` and `--until` filter by activity time, not ticket creation time.
+
+```bash
+tkt stats
+tkt stats --since 2026-04-01 --until 2026-04-25
+tkt stats --type feature --verified
+```
+
 ## MCP server
 
 tkt ships a built-in MCP server over stdio, compatible with any MCP-capable LLM tool:
@@ -115,6 +128,8 @@ transport: stdio
 ```
 
 Run `tkt init` in a project for the exact snippet to paste into your tool's config.
+
+The MCP server exposes read tools such as `tkt_list_tickets`, `tkt_show_ticket`, `tkt_search_tickets`, and `tkt_stats`, plus write/admin tools when not started with `--readonly`.
 
 ## License
 
