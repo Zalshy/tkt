@@ -68,7 +68,7 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 	s.AddTool(
 		mcplib.NewTool("tkt_list_tickets",
 			mcplib.WithDescription("List tickets. By default returns up to 10 non-VERIFIED tickets."),
-			mcplib.WithString("status", mcplib.Description("Filter by status: TODO, PLANNING, PLANNED, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED")),
+			mcplib.WithString("status", mcplib.Description("Filter by status: TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED")),
 			mcplib.WithBoolean("all", mcplib.Description("Return all tickets without limit")),
 			mcplib.WithBoolean("archived", mcplib.Description("Include ARCHIVED tickets")),
 			mcplib.WithBoolean("verified", mcplib.Description("Include VERIFIED tickets")),

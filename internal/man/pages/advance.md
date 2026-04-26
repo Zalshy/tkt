@@ -15,7 +15,7 @@ tkt advance <id> --note "<note>" [flags]
 | `--note` | string | `""` | Required note for real transitions (must be non-empty) |
 | `--note-file` | string | `""` | Read transition note from file |
 | `--note-stdin` | bool | `false` | Read transition note from stdin |
-| `--to` | string | `""` | Target state: `TODO`, `PLANNING`, `IN_PROGRESS`, `DONE`, `VERIFIED`, `CANCELED`; default: natural next state |
+| `--to` | string | `""` | Target state: `TODO`, `PLANNING`, `IN_PROGRESS`, `DONE`, `VERIFIED`, `CANCELED`, `ARCHIVED`; default: natural next state |
 | `--force` | bool | `false` | Override role/isolation checks (violation will be recorded in the log for real transitions) |
 | `--dry-run` | bool | `false` | Check transition without changing state or writing a log row; note is optional |
 | `--explain` | bool | `false` | Explain why transition is allowed or blocked without changing state or writing a log row; note is optional |

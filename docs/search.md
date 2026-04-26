@@ -14,7 +14,7 @@ tkt search <query> [flags]
 |------|------|---------|-------------|
 | `--title` | bool | `false` | Restrict search to title only |
 | `--all` | bool | `false` | Include CANCELED and ARCHIVED tickets in results |
-| `--status` | string | `""` | Filter results to a specific status |
+| `--status` | string | `""` | Filter results to a specific status (`TODO`, `PLANNING`, `IN_PROGRESS`, `DONE`, `VERIFIED`, `CANCELED`, `ARCHIVED`) |
 
 ## Notes / Behaviour
 
