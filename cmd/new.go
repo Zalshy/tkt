@@ -13,6 +13,8 @@ import (
 )
 
 var newDescription string
+var newDescriptionFile string
+var newDescriptionStdin bool
 var newAfter string
 var newTier string
 var newMainType string
@@ -27,6 +29,8 @@ var newCmd = &cobra.Command{
 
 func init() {
 	newCmd.Flags().StringVar(&newDescription, "description", "", "ticket description")
+	newCmd.Flags().StringVar(&newDescriptionFile, "description-file", "", "read ticket description from file")
+	newCmd.Flags().BoolVar(&newDescriptionStdin, "description-stdin", false, "read ticket description from stdin")
 	newCmd.Flags().StringVar(&newAfter, "after", "", "comma-separated dependency ticket IDs (e.g. 5,7)")
 	newCmd.Flags().StringVar(&newTier, "tier", "standard", "ticket tier (critical, standard, low)")
 	newCmd.Flags().StringVar(&newMainType, "type", "", "ticket type label (e.g. feature, bugfix, refactor)")
@@ -54,7 +58,21 @@ func runNew(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("new: load session: %w", err)
 	}
 
-	t, err := ticket.Create(args[0], newDescription, newTier, sess, database, newMainType, newAttention)
+	description, _, err := readTextInput(cmd, textInputOptions{
+		Prefix:         "new",
+		FieldName:      "description",
+		InlineFlagName: "description",
+		InlineValue:    newDescription,
+		StdinFlagName:  "description-stdin",
+		UseStdin:       newDescriptionStdin,
+		FileFlagName:   "description-file",
+		FilePath:       newDescriptionFile,
+	})
+	if err != nil {
+		return err
+	}
+
+	t, err := ticket.Create(args[0], description, newTier, sess, database, newMainType, newAttention)
 	if err != nil {
 		return fmt.Errorf("new: create: %w", err)
 	}

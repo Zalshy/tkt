@@ -18,6 +18,7 @@ var (
 	listArchived bool
 	listSort     string
 	listReady    bool
+	listJSON     bool
 )
 
 var listCmd = &cobra.Command{
@@ -35,6 +36,7 @@ func init() {
 	listCmd.Flags().BoolVar(&listArchived, "archived", false, "include ARCHIVED tickets")
 	listCmd.Flags().StringVar(&listSort, "sort", "updated", "sort order: updated or id")
 	listCmd.Flags().BoolVar(&listReady, "ready", false, "show only tickets with no unresolved dependencies")
+	listCmd.Flags().BoolVar(&listJSON, "json", false, "output machine-readable JSON")
 	rootCmd.AddCommand(listCmd)
 }
 
@@ -79,6 +81,25 @@ func runList(cmd *cobra.Command, args []string) error {
 	result, err := ticket.List(opts, database)
 	if err != nil {
 		return fmt.Errorf("list: %w", err)
+	}
+
+	if listJSON {
+		payload := map[string]any{
+			"tickets": output.TicketsJSON(result.Tickets),
+			"pagination": map[string]any{
+				"limit":    listLimit,
+				"all":      listAll,
+				"has_more": result.HasMore,
+			},
+			"filters": map[string]any{
+				"status":   listStatus,
+				"verified": listVerified,
+				"archived": listArchived,
+				"ready":    listReady,
+				"sort":     listSort,
+			},
+		}
+		return output.WriteJSON(cmd.OutOrStdout(), payload)
 	}
 
 	if len(result.Tickets) == 0 {

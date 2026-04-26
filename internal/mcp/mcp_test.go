@@ -314,6 +314,20 @@ func TestStats_InvalidArgs(t *testing.T) {
 	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"status": "NOPE"}), "invalid status")
 	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"since": "2026/04/01"}), "invalid since")
 	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"since": "2026-04-02", "until": "2026-04-01"}), "invalid range")
+	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"window": "0d"}), "invalid window")
+	assertError(t, callTool(t, s, "tkt_stats", map[string]any{"window": "7d", "since": "2026-04-01"}), "window conflict")
+}
+
+func TestStats_Window(t *testing.T) {
+	root, s := setup(t)
+	seedStatsMCPData(t, root)
+
+	res := callTool(t, s, "tkt_stats", map[string]any{"window": "24h"})
+	assertOK(t, res, "stats window")
+	assertContains(t, res, "Overview", "window stats overview")
+	if strings.Contains(resultText(res), "Scope: default") {
+		t.Fatalf("window should not render default scope: %q", resultText(res))
+	}
 }
 
 func TestBatch_WithTickets(t *testing.T) {
@@ -1115,4 +1129,26 @@ func TestAddDoc_ListArchived(t *testing.T) {
 	if activeMDs > 0 && strings.Contains(text, "Will Be Archived") {
 		t.Errorf("archived doc should not appear in active list: %q", text)
 	}
+}
+
+func TestManTools(t *testing.T) {
+	_, s := setupReadonly(t)
+
+	list := callTool(t, s, "tkt_list_man_pages", nil)
+	assertOK(t, list, "list man pages")
+	assertContains(t, list, "minimal", "list man pages includes minimal")
+
+	minimal := callTool(t, s, "tkt_read_man_page", map[string]any{"page": "minimal"})
+	assertOK(t, minimal, "read minimal")
+	assertContains(t, minimal, "Compact operating guide", "minimal content")
+
+	llm := callTool(t, s, "tkt_read_man_page", map[string]any{"page": "llm"})
+	assertOK(t, llm, "read llm alias")
+	if resultText(minimal) != resultText(llm) {
+		t.Fatalf("llm alias did not match minimal")
+	}
+
+	missing := callTool(t, s, "tkt_read_man_page", map[string]any{"page": "missing"})
+	assertError(t, missing, "missing man page")
+	assertContains(t, missing, "tkt_list_man_pages", "missing hint")
 }

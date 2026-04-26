@@ -13,7 +13,10 @@ import (
 	"github.com/zalshy/tkt/internal/ticket"
 )
 
-var batchN int
+var (
+	batchN    int
+	batchJSON bool
+)
 
 var batchCmd = &cobra.Command{
 	Use:   "batch",
@@ -24,6 +27,7 @@ var batchCmd = &cobra.Command{
 
 func init() {
 	batchCmd.Flags().IntVar(&batchN, "n", 6, "number of phases to display")
+	batchCmd.Flags().BoolVar(&batchJSON, "json", false, "output machine-readable JSON")
 	rootCmd.AddCommand(batchCmd)
 }
 
@@ -52,6 +56,9 @@ func runBatch(cmd *cobra.Command, args []string) error {
 	}
 
 	if len(activeTickets) == 0 {
+		if batchJSON {
+			return output.WriteJSON(out, map[string]any{"phases": []any{}, "summary": map[string]any{"phases_remaining": 0, "tickets": 0, "in_progress": 0}})
+		}
 		fmt.Fprint(out, "No active tickets.\n")
 		return nil
 	}
@@ -94,6 +101,9 @@ func runBatch(cmd *cobra.Command, args []string) error {
 	sort.Slice(seed, func(i, j int) bool { return seed[i] < seed[j] })
 
 	if len(seed) == 0 {
+		if batchJSON {
+			return output.WriteJSON(out, map[string]any{"phases": []any{}, "summary": map[string]any{"phases_remaining": 0, "tickets": 0, "in_progress": 0}})
+		}
 		fmt.Fprint(out, "No unblocked tickets found.\n")
 		return nil
 	}
@@ -123,6 +133,41 @@ func runBatch(cmd *cobra.Command, args []string) error {
 		}
 		sort.Slice(next, func(i, j int) bool { return next[i] < next[j] })
 		current = next
+	}
+
+	if batchJSON {
+		type batchTicket struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		}
+		type batchPhase struct {
+			Index   int           `json:"index"`
+			Tickets []batchTicket `json:"tickets"`
+		}
+		jsonPhases := make([]batchPhase, 0, len(phases))
+		totalTickets := 0
+		inProgressCount := 0
+		for phaseIdx, phase := range phases {
+			bp := batchPhase{Index: phaseIdx + 1, Tickets: make([]batchTicket, 0, len(phase))}
+			for _, id := range phase {
+				status := activeTickets[id]
+				bp.Tickets = append(bp.Tickets, batchTicket{ID: id, Status: string(status)})
+				totalTickets++
+				if status == models.StatusInProgress {
+					inProgressCount++
+				}
+			}
+			jsonPhases = append(jsonPhases, bp)
+		}
+		payload := map[string]any{
+			"phases": jsonPhases,
+			"summary": map[string]any{
+				"phases_remaining": len(phases),
+				"tickets":          totalTickets,
+				"in_progress":      inProgressCount,
+			},
+		}
+		return output.WriteJSON(out, payload)
 	}
 
 	// Render phases.

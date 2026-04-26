@@ -14,6 +14,8 @@ import (
 	"github.com/zalshy/tkt/internal/usage"
 )
 
+var showJSON bool
+
 var showCmd = &cobra.Command{
 	Use:   "show <id>",
 	Short: "Show full details of a ticket",
@@ -22,6 +24,7 @@ var showCmd = &cobra.Command{
 }
 
 func init() {
+	showCmd.Flags().BoolVar(&showJSON, "json", false, "output machine-readable JSON")
 	rootCmd.AddCommand(showCmd)
 }
 
@@ -61,6 +64,16 @@ func runShow(cmd *cobra.Command, args []string) error {
 	deps, err := ticket.GetDependencies(t.ID, database)
 	if err != nil {
 		return fmt.Errorf("show: get dependencies: %w", err)
+	}
+
+	if showJSON {
+		payload := map[string]any{
+			"ticket":       output.TicketJSON(*t),
+			"log_entries":  output.LogEntriesJSON(entries),
+			"usage":        output.UsageEntriesJSON(usageEntries),
+			"dependencies": output.TicketsJSON(deps),
+		}
+		return output.WriteJSON(cmd.OutOrStdout(), payload)
 	}
 
 	out := output.RenderTicket(*t, entries, usageEntries)
