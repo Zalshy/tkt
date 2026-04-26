@@ -13,21 +13,46 @@ import (
 	"github.com/zalshy/tkt/internal/ticket"
 )
 
+var (
+	commentBody      string
+	commentBodyFile  string
+	commentBodyStdin bool
+)
+
 var commentCmd = &cobra.Command{
-	Use:   "comment <id[,id...]> \"<body>\"",
+	Use:   "comment <id[,id...]> [\"<body>\"]",
 	Short: "Add a message to a ticket's log",
-	Args:  cobra.ExactArgs(2),
+	Args:  cobra.RangeArgs(1, 2),
 	RunE:  runComment,
 }
 
 func init() {
+	commentCmd.Flags().StringVar(&commentBody, "body", "", "comment body")
+	commentCmd.Flags().StringVar(&commentBodyFile, "body-file", "", "read comment body from file")
+	commentCmd.Flags().BoolVar(&commentBodyStdin, "body-stdin", false, "read comment body from stdin")
 	rootCmd.AddCommand(commentCmd)
 }
 
 func runComment(cmd *cobra.Command, args []string) error {
-	body := args[1]
-	if body == "" {
-		return fmt.Errorf("comment body is required")
+	positionalBody := ""
+	if len(args) == 2 {
+		positionalBody = args[1]
+	}
+	body, _, err := readTextInput(cmd, textInputOptions{
+		Prefix:          "comment",
+		FieldName:       "comment body",
+		InlineFlagName:  "body",
+		InlineValue:     commentBody,
+		StdinFlagName:   "body-stdin",
+		UseStdin:        commentBodyStdin,
+		FileFlagName:    "body-file",
+		FilePath:        commentBodyFile,
+		PositionalValue: positionalBody,
+		AllowPositional: true,
+		Required:        true,
+	})
+	if err != nil {
+		return err
 	}
 
 	ids, err := parseIDs(args[0])

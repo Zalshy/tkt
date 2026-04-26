@@ -17,13 +17,14 @@ var rootDir string
 var rootCmd = &cobra.Command{
 	Use:     "tkt",
 	Short:   "Project-local ticket CLI",
+	Long:    "Project-local ticket CLI. Use `tkt man` for built-in reference pages and `tkt man minimal` for a compact human/LLM operating guide.",
 	Version: version,
 }
 
 // Execute runs the root command and exits on error.
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		fmt.Fprintln(os.Stderr, err)
+		fmt.Fprintln(os.Stderr, withManualHint(err.Error()))
 		os.Exit(1)
 	}
 }
@@ -50,4 +51,3 @@ func requireRoot() (string, error) {
 	}
 	return root, nil
 }
-

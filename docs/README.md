@@ -17,6 +17,7 @@ Per-command documentation with all flags, defaults, and behaviour notes.
 | [tier.md](tier.md) | `tkt tier` | Set the tier of a ticket |
 | [update.md](update.md) | `tkt update` | Update ticket metadata (type, attention) |
 | [log.md](log.md) | `tkt log` | Record token/tool usage against a ticket |
+| [man.md](man.md) | `tkt man` | Built-in manual pages embedded in the binary; start with `tkt man minimal` |
 | [stats.md](stats.md) | `tkt stats` | Show activity-based project statistics |
 | [search.md](search.md) | `tkt search` | Full-text search across tickets |
 | [context.md](context.md) | `tkt context` | Manage project context entries |
@@ -27,3 +28,5 @@ Per-command documentation with all flags, defaults, and behaviour notes.
 | [archive.md](archive.md) | `tkt archive` | Archive a VERIFIED ticket |
 | [monitor.md](monitor.md) | `tkt monitor` | Live terminal UI for watching ticket activity |
 | [mcp.md](mcp.md) | `tkt mcp` | Start the MCP server over stdio |
+
+`tkt doc` manages project-local documents. `tkt man` reads built-in manuals shipped with the binary, including compact LLM guidance via `tkt man minimal` / `tkt man llm`.

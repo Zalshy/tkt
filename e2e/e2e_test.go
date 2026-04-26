@@ -14,6 +14,7 @@ import (
 	"bufio"
 	"context"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -1345,6 +1346,41 @@ func TestE2E(t *testing.T) {
 		}
 	})
 
+	t.Run("shell_safe_text_file_stdin_flags", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+
+		markdown := "Markdown with `code` and $(not executed)"
+		descPath := createTempFile(t, dir, "desc-*.md", markdown+"\n")
+		stdout, stderr, code := run(t, dir, "new", "Shell safe", "--description-file", descPath)
+		if code != 0 {
+			t.Fatalf("new --description-file failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		showOut, _, _ := run(t, dir, "show", "1")
+		if !strings.Contains(showOut, markdown) {
+			t.Fatalf("show missing preserved description: %q", showOut)
+		}
+
+		stdout, stderr, code = runWithInput(t, dir, markdown+"\n", "comment", "1", "--body-stdin")
+		if code != 0 {
+			t.Fatalf("comment --body-stdin failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		showOut, _, _ = run(t, dir, "show", "1")
+		if !strings.Contains(showOut, markdown) {
+			t.Fatalf("show missing preserved comment: %q", showOut)
+		}
+
+		notePath := createTempFile(t, dir, "note-*.md", markdown+"\n")
+		stdout, stderr, code = run(t, dir, "advance", "1", "--note-file", notePath)
+		if code != 0 {
+			t.Fatalf("advance --note-file failed: stdout=%q stderr=%q", stdout, stderr)
+		}
+		if !strings.Contains(stdout, fmt.Sprintf("Note: %q", markdown)) {
+			t.Fatalf("advance output missing preserved note: %q", stdout)
+		}
+	})
+
 	t.Run("comment_empty_body", func(t *testing.T) {
 		dir := t.TempDir()
 		initProject(t, dir)
@@ -1970,5 +2006,227 @@ func injectPlan(t *testing.T, dir string, ticketID int64) {
 	)
 	if err != nil {
 		t.Fatalf("injectPlan: insert log entry: %v", err)
+	}
+}
+
+func TestManCommand(t *testing.T) {
+	dir := t.TempDir()
+	initProject(t, dir)
+
+	stdout, stderr, code := run(t, dir, "man")
+	if code != 0 {
+		t.Fatalf("man list failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "minimal") || !strings.Contains(stdout, "state-machine") {
+		t.Fatalf("man list missing key pages: %q", stdout)
+	}
+
+	minimal, stderr, code := run(t, dir, "man", "minimal")
+	if code != 0 {
+		t.Fatalf("man minimal failed: stdout=%q stderr=%q", minimal, stderr)
+	}
+	if !strings.Contains(minimal, "Compact operating guide") {
+		t.Fatalf("unexpected minimal page: %q", minimal)
+	}
+
+	llm, stderr, code := run(t, dir, "man", "llm")
+	if code != 0 {
+		t.Fatalf("man llm failed: stdout=%q stderr=%q", llm, stderr)
+	}
+	if llm != minimal {
+		t.Fatalf("llm alias did not match minimal")
+	}
+
+	_, stderr, code = run(t, dir, "man", "missing")
+	if code == 0 || !strings.Contains(stderr, "Run: tkt man") {
+		t.Fatalf("expected missing page error with hint, code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestManDiscoverableFromHelpAndErrors(t *testing.T) {
+	dir := t.TempDir()
+	initProject(t, dir)
+
+	stdout, stderr, code := run(t, dir, "--help")
+	if code != 0 {
+		t.Fatalf("help failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "tkt man minimal") {
+		t.Fatalf("root help missing man minimal hint: %q", stdout)
+	}
+
+	_, stderr, code = run(t, dir, "wat")
+	if code == 0 || !strings.Contains(stderr, "tkt man minimal") {
+		t.Fatalf("unknown command missing manual hint, code=%d stderr=%q", code, stderr)
+	}
+
+	_, stderr, code = run(t, dir, "list", "--status", "PLANNED")
+	if code == 0 || !strings.Contains(stderr, "tkt man state-machine") {
+		t.Fatalf("invalid status missing state-machine hint, code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestJSONOutputCommands(t *testing.T) {
+	dir := t.TempDir()
+	initProject(t, dir)
+	createSession(t, dir, "architect")
+	createTicket(t, dir, "JSON ticket")
+	advanceTicket(t, dir, "1", "planning")
+	stdout, stderr, code := run(t, dir, "plan", "1", "--body", "json plan")
+	if code != 0 {
+		t.Fatalf("plan failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	stdout, stderr, code = run(t, dir, "list", "--json")
+	if code != 0 {
+		t.Fatalf("list --json failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	var listPayload struct {
+		Tickets []struct {
+			ID    int64  `json:"id"`
+			Title string `json:"title"`
+		} `json:"tickets"`
+		Pagination struct {
+			HasMore bool `json:"has_more"`
+		} `json:"pagination"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &listPayload); err != nil {
+		t.Fatalf("list json parse: %v; stdout=%q", err, stdout)
+	}
+	if len(listPayload.Tickets) != 1 || listPayload.Tickets[0].Title != "JSON ticket" {
+		t.Fatalf("unexpected list json: %#v", listPayload)
+	}
+
+	stdout, stderr, code = run(t, dir, "show", "1", "--json")
+	if code != 0 {
+		t.Fatalf("show --json failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	var showPayload struct {
+		Ticket struct {
+			ID     int64  `json:"id"`
+			Status string `json:"status"`
+		} `json:"ticket"`
+		LogEntries []struct {
+			Kind string `json:"kind"`
+		} `json:"log_entries"`
+		Usage []struct {
+			Tokens int `json:"tokens"`
+		} `json:"usage"`
+		Dependencies []struct {
+			ID int64 `json:"id"`
+		} `json:"dependencies"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &showPayload); err != nil {
+		t.Fatalf("show json parse: %v; stdout=%q", err, stdout)
+	}
+	if showPayload.Ticket.ID != 1 || len(showPayload.LogEntries) == 0 {
+		t.Fatalf("unexpected show json: %#v", showPayload)
+	}
+
+	stdout, stderr, code = run(t, dir, "batch", "--json")
+	if code != 0 {
+		t.Fatalf("batch --json failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	var batchPayload struct {
+		Phases []struct {
+			Index   int `json:"index"`
+			Tickets []struct {
+				ID     int64  `json:"id"`
+				Status string `json:"status"`
+			} `json:"tickets"`
+		} `json:"phases"`
+		Summary struct {
+			Tickets int `json:"tickets"`
+		} `json:"summary"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &batchPayload); err != nil {
+		t.Fatalf("batch json parse: %v; stdout=%q", err, stdout)
+	}
+	if batchPayload.Summary.Tickets == 0 || len(batchPayload.Phases) == 0 {
+		t.Fatalf("unexpected batch json: %#v", batchPayload)
+	}
+
+	stdout, stderr, code = run(t, dir, "stats", "--json")
+	if code != 0 {
+		t.Fatalf("stats --json failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	var statsPayload struct {
+		DefaultScope bool `json:"default_scope"`
+		Report       struct {
+			Overview struct {
+				Total int `json:"total"`
+			} `json:"overview"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &statsPayload); err != nil {
+		t.Fatalf("stats json parse: %v; stdout=%q", err, stdout)
+	}
+	if !statsPayload.DefaultScope || statsPayload.Report.Overview.Total == 0 {
+		t.Fatalf("unexpected stats json: %#v", statsPayload)
+	}
+}
+
+func TestAdvanceDryRunExplain(t *testing.T) {
+	dir := t.TempDir()
+	initProject(t, dir)
+	createSession(t, dir, "implementer")
+	createTicket(t, dir, "Preflight ticket")
+
+	stdout, stderr, code := run(t, dir, "advance", "1", "--dry-run")
+	if code != 0 {
+		t.Fatalf("dry-run allowed transition failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "would advance") {
+		t.Fatalf("dry-run missing would advance: %q", stdout)
+	}
+	db := openDB(t, dir)
+	var status string
+	if err := db.QueryRow(`SELECT status FROM tickets WHERE id = 1`).Scan(&status); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	var logCount int
+	if err := db.QueryRow(`SELECT COUNT(*) FROM ticket_log WHERE ticket_id = 1`).Scan(&logCount); err != nil {
+		db.Close()
+		t.Fatal(err)
+	}
+	db.Close()
+	if status != "TODO" || logCount != 0 {
+		t.Fatalf("dry-run mutated state/log: status=%s logCount=%d", status, logCount)
+	}
+
+	advanceTicket(t, dir, "1", "planning")
+	createSession(t, dir, "architect")
+	stdout, stderr, code = run(t, dir, "advance", "1", "--explain")
+	if code == 0 {
+		t.Fatalf("explain missing plan should be blocked: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Allowed: false") || !strings.Contains(stdout, "Plan present: false") || !strings.Contains(stdout, "tkt man plan") {
+		t.Fatalf("explain missing expected details: stdout=%q stderr=%q", stdout, stderr)
+	}
+
+	_, stderr, code = run(t, dir, "advance", "1", "--dry-run", "--explain")
+	if code == 0 || !strings.Contains(stderr, "cannot be used together") {
+		t.Fatalf("expected dry-run/explain conflict: code=%d stderr=%q", code, stderr)
+	}
+}
+
+func TestStatsWindow(t *testing.T) {
+	dir := t.TempDir()
+	initProject(t, dir)
+	createSession(t, dir, "architect")
+	createTicket(t, dir, "Window stats")
+
+	stdout, stderr, code := run(t, dir, "stats", "--window", "24h")
+	if code != 0 {
+		t.Fatalf("stats --window failed: stdout=%q stderr=%q", stdout, stderr)
+	}
+	if !strings.Contains(stdout, "Stats") || strings.Contains(stdout, "Scope: default") {
+		t.Fatalf("unexpected stats --window output: %q", stdout)
+	}
+
+	_, stderr, code = run(t, dir, "stats", "--window", "7d", "--since", "2026-04-01")
+	if code == 0 || !strings.Contains(stderr, "--window cannot be combined") {
+		t.Fatalf("expected window conflict: code=%d stderr=%q", code, stderr)
 	}
 }
