@@ -268,13 +268,32 @@ func TestExecute_ForceWarning(t *testing.T) {
 	if strings.TrimSpace(string(stderrBytes)) == "" {
 		t.Error("expected non-empty warning on stderr, got empty")
 	}
+
+	entries, err := ilog.GetAll(context.Background(), id, database)
+	if err != nil {
+		t.Fatalf("get log entries: %v", err)
+	}
+	if len(entries) < 2 {
+		t.Fatalf("expected seeded + forced transition log entries, got %d", len(entries))
+	}
+	body := entries[len(entries)-1].Body
+	for _, want := range []string{
+		"force verify",
+		"FORCE VIOLATION:",
+		"requires a different session",
+		"Submitted by: arch-grace",
+	} {
+		if !strings.Contains(body, want) {
+			t.Fatalf("forced transition log body missing %q: %q", want, body)
+		}
+	}
 }
 
 // TestExecute_SubmitterResolution verifies that Execute correctly resolves the
 // submitter from the last transition log entry.
-// - Advancing a DONE ticket to VERIFIED with the same session that submitted (session A)
-//   must fail (isolation rule).
-// - A different architect session (session B) must succeed.
+//   - Advancing a DONE ticket to VERIFIED with the same session that submitted (session A)
+//     must fail (isolation rule).
+//   - A different architect session (session B) must succeed.
 func TestExecute_SubmitterResolution(t *testing.T) {
 	database := mustOpenDB(t)
 	impl := insertSession(t, database, "impl-henry", models.RoleImplementer)

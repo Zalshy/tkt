@@ -36,7 +36,7 @@ func init() {
 	advanceCmd.Flags().StringVar(&advanceNote, "note", "", "required note for the transition (non-empty)")
 	advanceCmd.Flags().StringVar(&advanceNoteFile, "note-file", "", "read transition note from file")
 	advanceCmd.Flags().BoolVar(&advanceNoteStdin, "note-stdin", false, "read transition note from stdin")
-	advanceCmd.Flags().StringVar(&advanceTo, "to", "", "target state (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED); default: natural next state")
+	advanceCmd.Flags().StringVar(&advanceTo, "to", "", "target state (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED); default: natural next state")
 	advanceCmd.Flags().BoolVar(&advanceForce, "force", false, "override role/isolation checks (violation will be recorded)")
 	advanceCmd.Flags().BoolVar(&advanceDryRun, "dry-run", false, "check transition without changing state or writing log")
 	advanceCmd.Flags().BoolVar(&advanceExplain, "explain", false, "explain why transition is allowed or blocked without changing state")
@@ -74,7 +74,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	var toStatus models.Status
 	if advanceTo != "" {
 		if !validStatuses[advanceTo] {
-			return fmt.Errorf("invalid --to %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED", advanceTo)
+			return fmt.Errorf("invalid --to %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED", advanceTo)
 		}
 		toStatus = models.Status(advanceTo)
 	}

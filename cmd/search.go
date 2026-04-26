@@ -26,7 +26,7 @@ var searchCmd = &cobra.Command{
 func init() {
 	searchCmd.Flags().BoolVar(&searchTitleOnly, "title", false, "restrict search to title only")
 	searchCmd.Flags().BoolVar(&searchAll, "all", false, "include CANCELED and ARCHIVED tickets in results")
-	searchCmd.Flags().StringVar(&searchStatus, "status", "", "filter results to a specific status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED)")
+	searchCmd.Flags().StringVar(&searchStatus, "status", "", "filter results to a specific status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED)")
 	rootCmd.AddCommand(searchCmd)
 }
 
@@ -35,7 +35,7 @@ func runSearch(cmd *cobra.Command, args []string) error {
 
 	// Validate --status before touching the DB.
 	if searchStatus != "" && !validStatuses[searchStatus] {
-		return fmt.Errorf("invalid --status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED", searchStatus)
+		return fmt.Errorf("invalid --status %q: must be one of TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED", searchStatus)
 	}
 
 	root, err := requireRoot()

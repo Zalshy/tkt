@@ -167,9 +167,15 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	}
 
 	// Step 9: append the transition log entry inside the same transaction.
+	// Forced transitions must persist the bypassed validation details in audit
+	// history, not just print them to stderr.
+	logBody := note
+	if pre.warn != nil {
+		logBody = note + "\n\nFORCE VIOLATION:\n" + pre.warn.Message
+	}
 	fromStr := string(t.Status)
 	toStr := string(to)
-	if err := ilog.Append(context.Background(), parsedIntID, "transition", note, &fromStr, &toStr, actor, tx); err != nil {
+	if err := ilog.Append(context.Background(), parsedIntID, "transition", logBody, &fromStr, &toStr, actor, tx); err != nil {
 		return fmt.Errorf("state.Execute: log append: %w", err)
 	}
 
