@@ -17,18 +17,25 @@ func runNewInDir(t *testing.T, dir string, args []string, setupFlags func()) (st
 
 	savedRootDir := rootDir
 	savedDesc := newDescription
+	savedDescFile := newDescriptionFile
+	savedDescStdin := newDescriptionStdin
 	savedAfter := newAfter
 	savedTier := newTier
 	defer func() {
 		rootDir = savedRootDir
 		newDescription = savedDesc
+		newDescriptionFile = savedDescFile
+		newDescriptionStdin = savedDescStdin
 		newAfter = savedAfter
 		newTier = savedTier
 		newCmd.SetOut(nil)
+		newCmd.SetIn(nil)
 	}()
 
 	rootDir = dir
 	newDescription = ""
+	newDescriptionFile = ""
+	newDescriptionStdin = false
 	newAfter = ""
 	newTier = "standard"
 
@@ -100,6 +107,59 @@ func TestNew_WithSession(t *testing.T) {
 	want := `Created #1  "Fix login"`
 	if !strings.Contains(out, want) {
 		t.Errorf("expected output %q, got: %q", want, out)
+	}
+}
+
+func TestNew_DescriptionFilePreservesMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-desc-file")
+	body := "Markdown with `code` and $(not executed)"
+	path := filepath.Join(dir, "description.md")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runNewInDir(t, dir, []string{"File description"}, func() {
+		newDescriptionFile = path
+	})
+	if err != nil {
+		t.Fatalf("runNew: %v", err)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var got string
+	if err := database.QueryRow(`SELECT description FROM tickets WHERE id = 1`).Scan(&got); err != nil {
+		t.Fatal(err)
+	}
+	if got != body {
+		t.Fatalf("description = %q, want %q", got, body)
+	}
+}
+
+func TestNew_DescriptionConflictingSources(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-desc-conflict")
+	path := filepath.Join(dir, "description.md")
+	if err := os.WriteFile(path, []byte("from file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runNewInDir(t, dir, []string{"Conflict"}, func() {
+		newDescription = "inline"
+		newDescriptionFile = path
+	})
+	if err == nil || !strings.Contains(err.Error(), "provide only one description source") {
+		t.Fatalf("expected conflict error, got %v", err)
 	}
 }
 

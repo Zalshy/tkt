@@ -14,12 +14,14 @@ import (
 var (
 	statsSince           string
 	statsUntil           string
+	statsWindow          string
 	statsStatus          string
 	statsTier            string
 	statsType            string
 	statsCreatedBy       string
 	statsIncludeVerified bool
 	statsIncludeArchived bool
+	statsJSON            bool
 )
 
 var statsCmd = &cobra.Command{
@@ -32,12 +34,14 @@ var statsCmd = &cobra.Command{
 func init() {
 	statsCmd.Flags().StringVar(&statsSince, "since", "", "include ticket activity on or after YYYY-MM-DD")
 	statsCmd.Flags().StringVar(&statsUntil, "until", "", "include ticket activity on or before YYYY-MM-DD")
+	statsCmd.Flags().StringVar(&statsWindow, "window", "", "include ticket activity in the last duration (e.g. 24h, 7d, 30d)")
 	statsCmd.Flags().StringVar(&statsStatus, "status", "", "filter by status (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED)")
 	statsCmd.Flags().StringVar(&statsTier, "tier", "", "filter by tier (critical, standard, low)")
 	statsCmd.Flags().StringVar(&statsType, "type", "", "filter by main type")
 	statsCmd.Flags().StringVar(&statsCreatedBy, "created-by", "", "filter by creator session name")
 	statsCmd.Flags().BoolVar(&statsIncludeVerified, "verified", false, "include VERIFIED tickets")
 	statsCmd.Flags().BoolVar(&statsIncludeArchived, "archived", false, "include ARCHIVED tickets")
+	statsCmd.Flags().BoolVar(&statsJSON, "json", false, "output machine-readable JSON")
 	rootCmd.AddCommand(statsCmd)
 }
 
@@ -64,7 +68,15 @@ func runStats(cmd *cobra.Command, args []string) error {
 	}
 
 	out := cmd.OutOrStdout()
-	if statsDefaultScopeActive() {
+	defaultScope := statsDefaultScopeActive()
+	if statsJSON {
+		payload := map[string]any{
+			"default_scope": defaultScope,
+			"report":        output.StatsReportJSON(report),
+		}
+		return output.WriteJSON(out, payload)
+	}
+	if defaultScope {
 		fmt.Fprintln(out, "Scope: default last 24 hours, all ticket types and statuses")
 		fmt.Fprintln(out)
 	}
@@ -83,6 +95,18 @@ func statsOptionsFromFlags() (statsPkg.Options, error) {
 	}
 	if defaultScope {
 		since := time.Now().Add(-24 * time.Hour)
+		opts.Since = &since
+	}
+
+	if statsWindow != "" {
+		if statsSince != "" || statsUntil != "" {
+			return statsPkg.Options{}, fmt.Errorf("stats: --window cannot be combined with --since or --until")
+		}
+		window, err := statsPkg.ParseWindow(statsWindow)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("stats: %w", err)
+		}
+		since := time.Now().Add(-window)
 		opts.Since = &since
 	}
 
@@ -129,6 +153,7 @@ func parseStatsDate(value string) (time.Time, error) {
 func statsDefaultScopeActive() bool {
 	return statsSince == "" &&
 		statsUntil == "" &&
+		statsWindow == "" &&
 		statsStatus == "" &&
 		statsTier == "" &&
 		statsType == "" &&

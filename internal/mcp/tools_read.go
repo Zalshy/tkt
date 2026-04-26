@@ -15,6 +15,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	"github.com/zalshy/tkt/internal/docs"
 	ilog "github.com/zalshy/tkt/internal/log"
+	manPkg "github.com/zalshy/tkt/internal/man"
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/output"
 	"github.com/zalshy/tkt/internal/role"
@@ -26,6 +27,43 @@ import (
 )
 
 func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
+	// tkt_list_man_pages
+	s.AddTool(
+		mcplib.NewTool("tkt_list_man_pages",
+			mcplib.WithDescription("List built-in tkt manual pages. Start with minimal for compact human/LLM guidance."),
+		),
+		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			pages, err := manPkg.ListPages()
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+			var sb strings.Builder
+			for _, page := range pages {
+				sb.WriteString(fmt.Sprintf("%-15s  %s\n", page.Name, page.Title))
+			}
+			return mcplib.NewToolResultText(sb.String()), nil
+		},
+	)
+
+	// tkt_read_man_page
+	s.AddTool(
+		mcplib.NewTool("tkt_read_man_page",
+			mcplib.WithDescription("Read a built-in tkt manual page. Use page=minimal or page=llm for compact guidance."),
+			mcplib.WithString("page", mcplib.Required(), mcplib.Description("Manual page name, e.g. minimal, workflow, state-machine, advance; llm aliases to minimal")),
+		),
+		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
+			name := req.GetString("page", "")
+			if name == "" {
+				return mcplib.NewToolResultError("page is required. Use tkt_list_man_pages first."), nil
+			}
+			page, err := manPkg.ReadPage(name)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error() + ". Use tkt_list_man_pages."), nil
+			}
+			return mcplib.NewToolResultText(page.Body), nil
+		},
+	)
+
 	// tkt_list_tickets
 	s.AddTool(
 		mcplib.NewTool("tkt_list_tickets",
@@ -264,6 +302,7 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 			mcplib.WithDescription("Show project statistics with optional filters."),
 			mcplib.WithString("since", mcplib.Description("Include ticket activity on or after YYYY-MM-DD")),
 			mcplib.WithString("until", mcplib.Description("Include ticket activity on or before YYYY-MM-DD")),
+			mcplib.WithString("window", mcplib.Description("Include ticket activity in the last duration, e.g. 24h, 7d, 30d")),
 			mcplib.WithString("status", mcplib.Description("Filter by status: TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED, ARCHIVED")),
 			mcplib.WithString("tier", mcplib.Description("Filter by tier: critical, standard, low")),
 			mcplib.WithString("type", mcplib.Description("Filter by main type")),
@@ -423,6 +462,7 @@ func addReadTools(s *server.MCPServer, root string, db *sql.DB) {
 func statsOptionsFromMCP(req mcplib.CallToolRequest) (statsPkg.Options, error) {
 	sinceStr := req.GetString("since", "")
 	untilStr := req.GetString("until", "")
+	windowStr := req.GetString("window", "")
 	statusStr := req.GetString("status", "")
 	tier := req.GetString("tier", "")
 	defaultScope := statsMCPDefaultScopeActive(req)
@@ -436,6 +476,18 @@ func statsOptionsFromMCP(req mcplib.CallToolRequest) (statsPkg.Options, error) {
 	}
 	if defaultScope {
 		since := time.Now().Add(-24 * time.Hour)
+		opts.Since = &since
+	}
+
+	if windowStr != "" {
+		if sinceStr != "" || untilStr != "" {
+			return statsPkg.Options{}, fmt.Errorf("window cannot be combined with since or until. See: tkt_read_man_page page=stats")
+		}
+		window, err := statsPkg.ParseWindow(windowStr)
+		if err != nil {
+			return statsPkg.Options{}, fmt.Errorf("%s. See: tkt_read_man_page page=stats", err.Error())
+		}
+		since := time.Now().Add(-window)
 		opts.Since = &since
 	}
 
@@ -482,6 +534,7 @@ func parseMCPStatsDate(value string) (time.Time, error) {
 func statsMCPDefaultScopeActive(req mcplib.CallToolRequest) bool {
 	return req.GetString("since", "") == "" &&
 		req.GetString("until", "") == "" &&
+		req.GetString("window", "") == "" &&
 		req.GetString("status", "") == "" &&
 		req.GetString("tier", "") == "" &&
 		req.GetString("type", "") == "" &&

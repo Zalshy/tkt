@@ -18,21 +18,34 @@ func runAdvanceInDir(t *testing.T, dir string, args []string, setupFlags func())
 
 	savedRootDir := rootDir
 	savedNote := advanceNote
+	savedNoteFile := advanceNoteFile
+	savedNoteStdin := advanceNoteStdin
 	savedTo := advanceTo
 	savedForce := advanceForce
+	savedDryRun := advanceDryRun
+	savedExplain := advanceExplain
 	defer func() {
 		rootDir = savedRootDir
 		advanceNote = savedNote
+		advanceNoteFile = savedNoteFile
+		advanceNoteStdin = savedNoteStdin
 		advanceTo = savedTo
 		advanceForce = savedForce
+		advanceDryRun = savedDryRun
+		advanceExplain = savedExplain
 		advanceCmd.SetOut(nil)
+		advanceCmd.SetIn(nil)
 		advanceCmd.SilenceErrors = false
 	}()
 
 	rootDir = dir
 	advanceNote = ""
+	advanceNoteFile = ""
+	advanceNoteStdin = false
 	advanceTo = ""
 	advanceForce = false
+	advanceDryRun = false
+	advanceExplain = false
 
 	if setupFlags != nil {
 		setupFlags()
@@ -90,6 +103,51 @@ func seedTicketWithStatus(t *testing.T, dir string, title string, status string)
 		t.Fatalf("seedTicketWithStatus: last insert id: %v", err)
 	}
 	return fmt.Sprintf("%d", id)
+}
+
+func TestAdvance_NoteFilePreservesMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "arch-note-file", "architect")
+	id := seedTicketWithStatus(t, dir, "Note file", "TODO")
+	body := "Note with `code` and $(not executed)"
+	path := filepath.Join(dir, "note.md")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNoteFile = path
+	})
+	if err != nil {
+		t.Fatalf("runAdvance: %v", err)
+	}
+	if !strings.Contains(out, fmt.Sprintf("Note: %q", body)) {
+		t.Fatalf("output missing preserved note: %q", out)
+	}
+}
+
+func TestAdvance_ConflictingNoteSources(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "arch-note-conflict", "architect")
+	id := seedTicketWithStatus(t, dir, "Note conflict", "TODO")
+	path := filepath.Join(dir, "note.md")
+	if err := os.WriteFile(path, []byte("from file"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "inline"
+		advanceNoteFile = path
+	})
+	if err == nil || !strings.Contains(err.Error(), "provide only one note source") {
+		t.Fatalf("expected conflict error, got %v", err)
+	}
 }
 
 // TestAdvance_MissingNote verifies that an empty --note returns a usage error.
@@ -352,5 +410,77 @@ func TestAdvance_MultiID_PartialFailure(t *testing.T) {
 	want1 := fmt.Sprintf("#%s  TODO → PLANNING", id1)
 	if !strings.Contains(out, want1) {
 		t.Errorf("expected %q (success) in output, got: %q", want1, out)
+	}
+}
+
+func TestAdvance_DryRunDoesNotMutate(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "impl-dry", "implementer")
+	id := seedTicketWithStatus(t, dir, "Dry run", "TODO")
+
+	out, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceDryRun = true
+	})
+	if err != nil {
+		t.Fatalf("dry-run should be allowed: %v", err)
+	}
+	if !strings.Contains(out, "would advance") {
+		t.Fatalf("expected would advance output, got %q", out)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	var status string
+	if err := database.QueryRow(`SELECT status FROM tickets WHERE id = ?`, id).Scan(&status); err != nil {
+		t.Fatal(err)
+	}
+	if status != "TODO" {
+		t.Fatalf("status changed during dry-run: %s", status)
+	}
+	var count int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM ticket_log WHERE ticket_id = ?`, id).Scan(&count); err != nil {
+		t.Fatal(err)
+	}
+	if count != 0 {
+		t.Fatalf("dry-run wrote log rows: %d", count)
+	}
+}
+
+func TestAdvance_ExplainBlockedNoPlan(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "arch-explain", "architect")
+	id := seedTicketWithStatus(t, dir, "Explain", "PLANNING")
+
+	out, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceExplain = true
+	})
+	if err == nil {
+		t.Fatalf("expected blocked explain to return error")
+	}
+	if !strings.Contains(out, "Allowed: false") || !strings.Contains(out, "Plan present: false") || !strings.Contains(out, "tkt man plan") {
+		t.Fatalf("unexpected explain output: %q", out)
+	}
+}
+
+func TestAdvance_DryRunExplainConflict(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	_, err := runAdvanceInDir(t, dir, []string{"1"}, func() {
+		advanceDryRun = true
+		advanceExplain = true
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
+		t.Fatalf("expected conflict error, got %v", err)
 	}
 }

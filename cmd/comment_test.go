@@ -2,23 +2,45 @@ package cmd
 
 import (
 	"bytes"
+	"context"
 	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/zalshy/tkt/internal/db"
+	tktlog "github.com/zalshy/tkt/internal/log"
 )
 
 // runCommentInDir sets rootDir, invokes runComment, returns captured stdout and error.
-func runCommentInDir(t *testing.T, dir string, args []string) (string, error) {
+func runCommentInDir(t *testing.T, dir string, args []string, setupFlags ...func()) (string, error) {
 	t.Helper()
 
 	savedRootDir := rootDir
+	savedBody := commentBody
+	savedBodyFile := commentBodyFile
+	savedBodyStdin := commentBodyStdin
 	defer func() {
 		rootDir = savedRootDir
+		commentBody = savedBody
+		commentBodyFile = savedBodyFile
+		commentBodyStdin = savedBodyStdin
 		commentCmd.SetOut(nil)
+		commentCmd.SetIn(nil)
 		commentCmd.SilenceErrors = false
 	}()
 
 	rootDir = dir
+	commentBody = ""
+	commentBodyFile = ""
+	commentBodyStdin = false
+
+	for _, setup := range setupFlags {
+		if setup != nil {
+			setup()
+		}
+	}
 
 	var buf bytes.Buffer
 	commentCmd.SetOut(&buf)
@@ -45,6 +67,59 @@ func TestComment_SingleID(t *testing.T) {
 	}
 	if !strings.Contains(out, `"hello world"`) {
 		t.Errorf("expected quoted body in output, got: %q", out)
+	}
+}
+
+func TestComment_BodyFilePreservesMarkdown(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-comment-file")
+	id := seedTicketWithStatus(t, dir, "Comment target", "TODO")
+	body := "Markdown `code` and $(not executed)"
+	path := filepath.Join(dir, "comment.md")
+	if err := os.WriteFile(path, []byte(body), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	out, err := runCommentInDir(t, dir, []string{id}, func() {
+		commentBodyFile = path
+	})
+	if err != nil {
+		t.Fatalf("runComment: %v", err)
+	}
+	if !strings.Contains(out, fmt.Sprintf("#%s", id)) {
+		t.Fatalf("expected ticket id in output, got %q", out)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	entries, err := tktlog.GetAll(context.Background(), id, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 || entries[0].Body != body {
+		t.Fatalf("log entries = %+v, want body %q", entries, body)
+	}
+}
+
+func TestComment_ConflictingBodySources(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSession(t, dir, "impl-comment-conflict")
+	id := seedTicketWithStatus(t, dir, "Comment target", "TODO")
+
+	_, err := runCommentInDir(t, dir, []string{id, "positional"}, func() {
+		commentBody = "inline"
+	})
+	if err == nil || !strings.Contains(err.Error(), "provide only one comment body source") {
+		t.Fatalf("expected conflict error, got %v", err)
 	}
 }
 

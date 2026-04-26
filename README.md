@@ -29,10 +29,12 @@ make install   # installs to $GOPATH/bin
 
 ```bash
 tkt init                          # initialise a project
+tkt man minimal                   # read compact workflow/LLM guide
 tkt session --role architect      # declare your role
 tkt new "Fix the login bug"       # create a ticket
-tkt list                          # see what's open
-tkt advance 1                     # move it forward
+tkt list --all                    # see the board
+tkt advance 1 --dry-run           # preflight transition checks
+tkt advance 1 --note "start"      # move it forward
 tkt show 1                        # inspect a ticket
 ```
 
@@ -54,13 +56,16 @@ tkt init                            Initialise a new project
 tkt session                         Show active session
 tkt session --role <role>           Start a new session
 tkt session --end                   End the current session
-tkt new "<title>" [--type <label>] [--attention <N>]   Create a ticket
-tkt list                            List open tickets
-tkt show <id>                       Show a ticket with full log
-tkt advance <id>                    Move a ticket to the next state
+tkt new "<title>" [--description-file file.md] [--type <label>] [--attention <N>]   Create a ticket
+tkt list [--json]                   List open tickets
+tkt show <id> [--json]              Show a ticket with full log
+tkt man [page]                      Read built-in manuals (`tkt man minimal` for LLMs)
+tkt advance <id> --note/--note-file/--note-stdin  Move a ticket to the next state
+tkt advance <id> --dry-run/--explain  Preflight or explain transition checks
 tkt plan <id>                       Write or revise a ticket plan (opens $EDITOR)
 tkt plan <id> --body/--stdin/--file Supply plan non-interactively
 tkt comment <id> "<msg>"            Add a comment to a ticket
+tkt comment <id> --body-file file.md Add shell-safe multiline comments
 tkt depends <id> --on <ids>         Declare ticket dependencies
 tkt tier <id> <tier>                Set ticket tier (critical|standard|low)
 tkt update <id> [--type <label>] [--attention <N>]  Update ticket type or attention level
@@ -70,11 +75,18 @@ tkt doc add/list/read/archive       Manage documents
 tkt doc add <slug> --body/--stdin/--file  Create a document non-interactively
 tkt search <query>                  Substring search across ticket titles and descriptions
 tkt log <id> --tokens N             Record token/tool/duration usage against a ticket
+tkt stats [--window 7d] [--json]    Show activity-based project statistics
 tkt archive <id>                    Archive a VERIFIED ticket (terminal state)
 tkt cleanup                         Expire stale sessions and run maintenance
 tkt monitor                         Read-only TUI dashboard (auto-refreshes every 5s)
 tkt mcp                             Start MCP server (stdio transport)
 ```
+
+## Built-in manuals
+
+`tkt man` lists built-in reference pages embedded in the binary. Use `tkt man minimal` (or `tkt man llm`) for compact bootstrap guidance, then read specific pages such as `tkt man workflow`, `tkt man state-machine`, `tkt man advance`, or `tkt man stats`.
+
+`tkt doc` is separate: it manages project-local long-form documents in `.tkt/docs/`.
 
 ## Ticket lifecycle
 
@@ -104,6 +116,20 @@ DONE          Implementer executes
 VERIFIED      Architect verifies
 ```
 
+## Stats
+
+`tkt stats` shows activity-based project analytics: overview counts, cycle time, throughput, resource burn, and distribution by status/tier/type.
+
+With no flags, stats analyzes the last 24 hours of activity across all ticket types and statuses. `--since` and `--until` filter by activity time, not ticket creation time.
+
+```bash
+tkt stats
+tkt stats --window 7d
+tkt stats --since 2026-04-01 --until 2026-04-25
+tkt stats --type feature --verified
+tkt stats --json
+```
+
 ## MCP server
 
 tkt ships a built-in MCP server over stdio, compatible with any MCP-capable LLM tool:
@@ -115,6 +141,8 @@ transport: stdio
 ```
 
 Run `tkt init` in a project for the exact snippet to paste into your tool's config.
+
+The MCP server exposes read tools such as `tkt_list_tickets`, `tkt_show_ticket`, `tkt_search_tickets`, `tkt_stats` (including `window`), `tkt_list_man_pages`, and `tkt_read_man_page`, plus write/admin tools when not started with `--readonly`.
 
 ## License
 

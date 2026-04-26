@@ -16,9 +16,13 @@ import (
 )
 
 var (
-	advanceNote  string
-	advanceTo    string
-	advanceForce bool
+	advanceNote      string
+	advanceNoteFile  string
+	advanceNoteStdin bool
+	advanceTo        string
+	advanceForce     bool
+	advanceDryRun    bool
+	advanceExplain   bool
 )
 
 var advanceCmd = &cobra.Command{
@@ -30,14 +34,35 @@ var advanceCmd = &cobra.Command{
 
 func init() {
 	advanceCmd.Flags().StringVar(&advanceNote, "note", "", "required note for the transition (non-empty)")
+	advanceCmd.Flags().StringVar(&advanceNoteFile, "note-file", "", "read transition note from file")
+	advanceCmd.Flags().BoolVar(&advanceNoteStdin, "note-stdin", false, "read transition note from stdin")
 	advanceCmd.Flags().StringVar(&advanceTo, "to", "", "target state (TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED, CANCELED); default: natural next state")
 	advanceCmd.Flags().BoolVar(&advanceForce, "force", false, "override role/isolation checks (violation will be recorded)")
+	advanceCmd.Flags().BoolVar(&advanceDryRun, "dry-run", false, "check transition without changing state or writing log")
+	advanceCmd.Flags().BoolVar(&advanceExplain, "explain", false, "explain why transition is allowed or blocked without changing state")
 	rootCmd.AddCommand(advanceCmd)
 }
 
 func runAdvance(cmd *cobra.Command, args []string) error {
-	if advanceNote == "" {
-		return fmt.Errorf("flag --note is required and must be non-empty")
+	if advanceDryRun && advanceExplain {
+		return fmt.Errorf("advance: --dry-run and --explain cannot be used together")
+	}
+	note, _, err := readTextInput(cmd, textInputOptions{
+		Prefix:         "advance",
+		FieldName:      "note",
+		InlineFlagName: "note",
+		InlineValue:    advanceNote,
+		StdinFlagName:  "note-stdin",
+		UseStdin:       advanceNoteStdin,
+		FileFlagName:   "note-file",
+		FilePath:       advanceNoteFile,
+		Required:       !advanceDryRun && !advanceExplain,
+	})
+	if err != nil {
+		if err.Error() == "note is required" {
+			return fmt.Errorf("flag --note is required and must be non-empty")
+		}
+		return err
 	}
 
 	ids, err := parseIDs(args[0])
@@ -96,8 +121,21 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			}
 		}
 
+		if advanceDryRun || advanceExplain {
+			check, err := state.Check(ticketID, toStatus, sess, database, advanceForce)
+			if err != nil {
+				errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
+				continue
+			}
+			writeAdvanceCheck(out, check, advanceExplain)
+			if !check.Allowed {
+				errs = append(errs, fmt.Sprintf("#%s: %s", ticketID, check.Reason))
+			}
+			continue
+		}
+
 		// Execute the transition.
-		if err := state.Execute(ticketID, toStatus, advanceNote, sess, database, advanceForce); err != nil {
+		if err := state.Execute(ticketID, toStatus, note, sess, database, advanceForce); err != nil {
 			errText := err.Error()
 			if !advanceForce && (strings.Contains(errText, "requires role") || strings.Contains(errText, "requires a different session")) {
 				errs = append(errs, fmt.Sprintf("#%s: %s\nUse --force to override (violation will be recorded)", ticketID, errText))
@@ -111,7 +149,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 		numericID := strings.TrimPrefix(ticketID, "#")
 		fmt.Fprintf(out, "#%s  %s → %s\n", numericID, fromStatus, displayTo)
 		fmt.Fprintf(out, "Session: %s\n", sess.ID)
-		fmt.Fprintf(out, "Note: %q\n", advanceNote)
+		fmt.Fprintf(out, "Note: %q\n", note)
 
 		// Advisory dependency warning — informational only, never blocks.
 		numericIDInt, _ := strconv.ParseInt(numericID, 10, 64)
@@ -144,6 +182,30 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+func writeAdvanceCheck(out interface{ Write([]byte) (int, error) }, check state.CheckResult, explain bool) {
+	status := "would advance"
+	if !check.Allowed {
+		status = "blocked"
+	}
+	fmt.Fprintf(out, "#%s  %s → %s  %s\n", check.TicketID, check.From, check.To, status)
+	if !explain {
+		if !check.Allowed {
+			fmt.Fprintf(out, "Reason: %s\n", check.Reason)
+		}
+		return
+	}
+	fmt.Fprintf(out, "Allowed: %t\n", check.Allowed)
+	fmt.Fprintf(out, "Forced: %t\n", check.Forced)
+	fmt.Fprintf(out, "Reason: %s\n", check.Reason)
+	if check.PlanRequired {
+		fmt.Fprintf(out, "Plan required: true\n")
+		fmt.Fprintf(out, "Plan present: %t\n", check.PlanPresent)
+	}
+	if len(check.Hints) > 0 {
+		fmt.Fprintf(out, "See: %s\n", strings.Join(check.Hints, ", "))
+	}
 }
 
 func plural(n int, singular, pluralForm string) string {
