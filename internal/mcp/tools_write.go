@@ -222,6 +222,9 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
+			if t.Status != models.StatusPlanning {
+				return mcplib.NewToolResultError(fmt.Sprintf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)), nil
+			}
 
 			if err := ilog.Append(ctx, t.ID, "plan", body, nil, nil, sess, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
