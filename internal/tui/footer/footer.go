@@ -1,8 +1,6 @@
 package footer
 
 import (
-	"fmt"
-
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/tui/keys"
 	"github.com/zalshy/tkt/internal/tui/styles"
@@ -89,11 +87,15 @@ func (m Model) SetSessionCounts(c SessionCounts) Model {
 	return m
 }
 
-// View renders the footer as two lines joined with "\n":
-//  1. Session count line: "🧠 arch: N   ⚙️  impl: N" — muted style, centered.
-//  2. Key hint badges, truncated to fit within m.width.
+// View renders the footer as a single line of key hint badges, truncated to
+// fit within m.width.
 //
 // When m.width is 0, no truncation or centering is applied.
+//
+// The session count line ("arch: N  impl: N") is intentionally omitted here —
+// it is reserved for the upcoming side-mode footer (#204). SessionCounts and
+// SetSessionCounts remain on the model so the side-mode implementation can
+// pick them up without a breaking API change.
 //
 // View is intentionally stateless: it recalculates all output from m.width
 // and m.ctx on every call and writes nothing back to the receiver. The
@@ -102,16 +104,7 @@ func (m Model) SetSessionCounts(c SessionCounts) Model {
 // for storing the returned copy (e.g. m.ftr = m.ftr.SetWidth(w)), which is
 // what makes the updated state visible to the next View call.
 func (m Model) View() string {
-	// — session count line —
-	sessionText := fmt.Sprintf(
-		"🧠 arch: %d   ⚙️  impl: %d",
-		m.counts.Arch,
-		m.counts.Impl,
-	)
 	muted := lipgloss.NewStyle().Foreground(styles.Muted)
-	sessionLine := lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(
-		muted.Render(sessionText),
-	)
 
 	// — hint line —
 	hints := hintsFor(m.ctx)
@@ -131,9 +124,8 @@ func (m Model) View() string {
 		result = candidate
 	}
 
-	hintLine := result
 	if m.width > 0 {
-		hintLine = lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(result)
+		return lipgloss.NewStyle().Width(m.width).Align(lipgloss.Center).Render(result)
 	}
-	return sessionLine + "\n" + hintLine
+	return result
 }
