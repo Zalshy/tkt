@@ -18,10 +18,16 @@ func pollCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return pollTickMsg{} })
 }
 
+// statsLoadedMsg carries a freshly-computed statsData and the epoch it was
+// requested at. Stale loads (epoch mismatch) are discarded.
+type statsLoadedMsg struct {
+	data  statsData
+	epoch int
+}
+
 // RootModel is the top-level BubbleTea model for the side monitor mode.
-// It renders three placeholder sections (STATS, TICKET CHANGES, SESSIONS)
+// It renders three sections (STATS, TICKET CHANGES, SESSIONS)
 // with a minimal single-line header (including a HH:MM clock) and footer.
-// Child components are added in subsequent tickets (#203–#204).
 type RootModel struct {
 	db           *sql.DB
 	cfg          *config.ProjectConfig
@@ -30,6 +36,8 @@ type RootModel struct {
 	height       int
 	pollInterval time.Duration
 	clock        clockModel
+	stats        statsData
+	statsEpoch   int
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
@@ -51,12 +59,32 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 	}
 }
 
-// Init satisfies tea.Model. Starts the poll tick and the clock tick.
-func (m RootModel) Init() tea.Cmd {
-	return tea.Batch(pollCmd(m.pollInterval), clockCmd())
+// loadStatsCmd returns a tea.Cmd that loads stats in the background and sends
+// a statsLoadedMsg tagged with the given epoch.
+func loadStatsCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		data, err := loadStats(db)
+		if err != nil {
+			// Non-fatal: return empty statsData. The panel will show "loading…"
+			// until the next successful poll rather than crashing the TUI.
+			return statsLoadedMsg{data: statsData{}, epoch: epoch}
+		}
+		return statsLoadedMsg{data: data, epoch: epoch}
+	}
 }
 
-// Update handles window resize, poll ticks, clock ticks, and quit keys.
+// Init satisfies tea.Model. Starts the poll tick, clock tick, and initial stats load.
+// Note: Init uses a value receiver — mutations inside Init are discarded.
+// statsEpoch is 0 on construction; pass it directly without mutating.
+func (m RootModel) Init() tea.Cmd {
+	return tea.Batch(
+		pollCmd(m.pollInterval),
+		clockCmd(),
+		loadStatsCmd(m.db, m.statsEpoch),
+	)
+}
+
+// Update handles window resize, poll ticks, clock ticks, stats loads, and quit keys.
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -74,7 +102,15 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, tea.Batch(cmds...)
 
 	case pollTickMsg:
+		m.statsEpoch++
 		cmds = append(cmds, pollCmd(m.pollInterval))
+		cmds = append(cmds, loadStatsCmd(m.db, m.statsEpoch))
+		return m, tea.Batch(cmds...)
+
+	case statsLoadedMsg:
+		if msg.epoch == m.statsEpoch {
+			m.stats = msg.data
+		}
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
@@ -102,8 +138,7 @@ func (m RootModel) View() string {
 
 	header := renderHeader(m.clock, m.width)
 
-	stats := sectionStyle.Render(
-		lipgloss.NewStyle().Foreground(styles.Muted).Render("[ STATS ]"))
+	stats := sectionStyle.Render(renderStats(m.stats, m.width-2))
 
 	changes := sectionStyle.Render(
 		lipgloss.NewStyle().Foreground(styles.Muted).Render("[ TICKET CHANGES ]"))
