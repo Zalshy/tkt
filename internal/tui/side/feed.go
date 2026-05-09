@@ -83,12 +83,15 @@ func relAge(t time.Time) string {
 // maxEntries caps how many rows are shown so the section fits the available height.
 // Pass 0 or negative to show all entries.
 func renderFeed(entries []feedEntry, width int, maxEntries int) string {
-	headerStyle := lipgloss.NewStyle().
-		Foreground(styles.Primary).
-		Bold(true)
-
 	var sb strings.Builder
-	sb.WriteString(headerStyle.Render("TICKET CHANGES"))
+
+	// — Section header — centered —
+	sb.WriteString(lipgloss.NewStyle().
+		Foreground(styles.Primary).
+		Bold(true).
+		Width(width).
+		Align(lipgloss.Center).
+		Render("TICKET CHANGES"))
 	sb.WriteString("\n")
 
 	if len(entries) == 0 {
@@ -104,21 +107,22 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 	highlightStyle := lipgloss.NewStyle().
 		Background(styles.Warning).
 		Foreground(styles.BgDeep)
-	normalStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
 	markerStyle := lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
-	mutedStyle := lipgloss.NewStyle().Foreground(styles.Muted)
+	restStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
 
-	// Column widths: fixed layout so columns align across rows.
-	// marker(2) + session(16) + " · " + ticket(6) + " → " + state(12) + age(4)
-	const sessionW = 16
+	// Column widths — sessionW is computed so every row fills `width` exactly.
+	// Layout: marker(2) + session(sessionW) + " · "(3) + ticket(6) + " → "(3) + state(12) + " "(1) + age(4)
 	const stateW = 12
 	const ageW = 4
+	const fixedW = 2 + 3 + 6 + 3 + stateW + 1 + ageW // = 31
+	sessionW := width - fixedW
+	if sessionW < 8 {
+		sessionW = 8
+	}
 
 	for i, e := range entries {
-		marker := "  "
-		if i == 0 {
-			marker = markerStyle.Render("▶ ")
-		}
+		isFirst := i == 0
+		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
 
 		session := e.sessionName
 		if len(session) > sessionW {
@@ -134,41 +138,25 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 
 		age := relAge(e.createdAt)
 
-		// Build fixed-width plain line for truncation check.
-		plain := fmt.Sprintf("%s%-*s · %-6s → %-*s %*s",
-			marker,
-			sessionW, session,
-			ticket,
-			stateW, state,
-			ageW, age,
-		)
-		if width > 0 && lipgloss.Width(plain) > width {
-			plain = plain[:width]
-		}
+		rest := fmt.Sprintf(" · %-6s → %-*s %*s", ticket, stateW, state, ageW, age)
 
-		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
-		if i == 0 {
-			// First row: render marker separately so it keeps its bold style,
-			// then render the rest with the appropriate row style.
-			rest := fmt.Sprintf("%-*s · %-6s → %-*s %*s",
-				sessionW, session,
-				ticket,
-				stateW, state,
-				ageW, age,
-			)
-			if isNew {
-				sb.WriteString(highlightStyle.Render("▶ " + rest))
-			} else {
-				sb.WriteString(markerStyle.Render("▶ "))
-				sb.WriteString(normalStyle.Render(rest))
+		if isNew {
+			marker := "  "
+			if isFirst {
+				marker = "▶ "
 			}
+			plain := fmt.Sprintf("%s%-*s%s", marker, sessionW, session, rest)
+			sb.WriteString(highlightStyle.Render(plain))
 		} else {
-			if isNew {
-				sb.WriteString(highlightStyle.Render(plain))
+			if isFirst {
+				sb.WriteString(markerStyle.Render("▶ "))
 			} else {
-				_ = mutedStyle
-				sb.WriteString(normalStyle.Render(plain))
+				sb.WriteString("  ")
 			}
+			sb.WriteString(lipgloss.NewStyle().
+				Foreground(sessionColor(e.sessionName)).
+				Render(fmt.Sprintf("%-*s", sessionW, session)))
+			sb.WriteString(restStyle.Render(rest))
 		}
 		sb.WriteString("\n")
 	}

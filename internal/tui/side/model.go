@@ -3,6 +3,7 @@ package side
 import (
 	"database/sql"
 	"fmt"
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -16,6 +17,13 @@ type pollTickMsg struct{}
 
 func pollCmd(d time.Duration) tea.Cmd {
 	return tea.Tick(d, func(time.Time) tea.Msg { return pollTickMsg{} })
+}
+
+// animTickMsg is sent by animCmd on each animation frame (50 ms).
+type animTickMsg struct{}
+
+func animCmd() tea.Cmd {
+	return tea.Tick(50*time.Millisecond, func(time.Time) tea.Msg { return animTickMsg{} })
 }
 
 // statsLoadedMsg carries a freshly-computed statsData and the epoch it was
@@ -32,17 +40,28 @@ type feedLoadedMsg struct {
 	epoch   int
 }
 
-// sessionsLoadedMsg carries freshly-loaded session events and counts and the
-// epoch it was requested at. Stale loads (epoch mismatch) are discarded.
+// sessionsLoadedMsg carries freshly-loaded session events and the epoch it
+// was requested at. Stale loads (epoch mismatch) are discarded.
 type sessionsLoadedMsg struct {
 	events []sessionEvent
-	counts sessionCounts
 	epoch  int
 }
 
+// tokenBurnLoadedMsg carries freshly-loaded token burn totals and the epoch
+// it was requested at. Stale loads (epoch mismatch) are discarded.
+type tokenBurnLoadedMsg struct {
+	data  tokenBurnData
+	epoch int
+}
+
+// sparklineLoadedMsg carries freshly-loaded sparkline bucket data and the
+// epoch it was requested at. Stale loads (epoch mismatch) are discarded.
+type sparklineLoadedMsg struct {
+	data  sparklineData
+	epoch int
+}
+
 // RootModel is the top-level BubbleTea model for the side monitor mode.
-// It renders three sections (STATS, TICKET CHANGES, SESSIONS)
-// with a minimal single-line header (including a HH:MM clock) and footer.
 type RootModel struct {
 	db           *sql.DB
 	cfg          *config.ProjectConfig
@@ -57,9 +76,16 @@ type RootModel struct {
 	feedEpoch    int
 	feedLoaded   bool // true after the first successful feed load (baseline)
 	sessionsData []sessionEvent
-	sessCounts   sessionCounts
 	sessEpoch    int
 	sessLoaded   bool // true after the first successful sessions load (baseline)
+	tokenBurn      tokenBurnData
+	burnEpoch      int
+	sparkline      sparklineData
+	sparklineEpoch int
+	// Comet animation state — ping-pong left↔right.
+	cometPos      float64 // 0..1 position of the head along the bar
+	cometDir      int     // +1 = left→right, -1 = right→left (true direction)
+	cometDirBlend float64 // smoothed direction in [-1..+1]; lags cometDir to soften reversals
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
@@ -78,6 +104,8 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 		root:         root,
 		pollInterval: interval,
 		clock:        newClockModel(),
+		cometDir:      1,
+		cometDirBlend: 1.0, // starts moving left→right
 	}
 }
 
@@ -87,8 +115,6 @@ func loadStatsCmd(db *sql.DB, epoch int) tea.Cmd {
 	return func() tea.Msg {
 		data, err := loadStats(db)
 		if err != nil {
-			// Non-fatal: return empty statsData. The panel will show "loading…"
-			// until the next successful poll rather than crashing the TUI.
 			return statsLoadedMsg{data: statsData{}, epoch: epoch}
 		}
 		return statsLoadedMsg{data: data, epoch: epoch}
@@ -111,29 +137,54 @@ func loadFeedCmd(db *sql.DB, epoch int) tea.Cmd {
 // background and sends a sessionsLoadedMsg tagged with the given epoch.
 func loadSessionsCmd(db *sql.DB, epoch int) tea.Cmd {
 	return func() tea.Msg {
-		events, counts, err := loadSessions(db)
+		events, err := loadSessions(db)
 		if err != nil {
 			return sessionsLoadedMsg{epoch: epoch}
 		}
-		return sessionsLoadedMsg{events: events, counts: counts, epoch: epoch}
+		return sessionsLoadedMsg{events: events, epoch: epoch}
 	}
 }
 
-// Init satisfies tea.Model. Starts the poll tick, clock tick, and initial
-// stats/feed/sessions load.
+// loadTokenBurnCmd returns a tea.Cmd that loads token burn totals in the
+// background and sends a tokenBurnLoadedMsg tagged with the given epoch.
+func loadTokenBurnCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		data, err := loadTokenBurn(db)
+		if err != nil {
+			return tokenBurnLoadedMsg{epoch: epoch}
+		}
+		return tokenBurnLoadedMsg{data: data, epoch: epoch}
+	}
+}
+
+// loadSparklineCmd returns a tea.Cmd that loads the velocity sparkline data in
+// the background and sends a sparklineLoadedMsg tagged with the given epoch.
+func loadSparklineCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		data, err := loadSparkline(db)
+		if err != nil {
+			return sparklineLoadedMsg{data: sparklineData{buckets: make([]int, sparklineBuckets)}, epoch: epoch}
+		}
+		return sparklineLoadedMsg{data: data, epoch: epoch}
+	}
+}
+
+// Init satisfies tea.Model. Starts the poll tick, clock tick, and initial data loads.
 // Note: Init uses a value receiver — mutations inside Init are discarded.
-// All epoch values are 0 on construction; pass them directly without mutating.
 func (m RootModel) Init() tea.Cmd {
 	return tea.Batch(
 		pollCmd(m.pollInterval),
 		clockCmd(),
+		animCmd(),
 		loadStatsCmd(m.db, m.statsEpoch),
 		loadFeedCmd(m.db, m.feedEpoch),
 		loadSessionsCmd(m.db, m.sessEpoch),
+		loadTokenBurnCmd(m.db, m.burnEpoch),
+		loadSparklineCmd(m.db, m.sparklineEpoch),
 	)
 }
 
-// Update handles window resize, poll ticks, clock ticks, stats loads, and quit keys.
+// Update handles window resize, poll ticks, clock ticks, data loads, and quit keys.
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	var cmds []tea.Cmd
 
@@ -148,16 +199,21 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
+		cmds = append(cmds, tea.ClearScreen)
 		return m, tea.Batch(cmds...)
 
 	case pollTickMsg:
 		m.statsEpoch++
 		m.feedEpoch++
 		m.sessEpoch++
+		m.burnEpoch++
+		m.sparklineEpoch++
 		cmds = append(cmds, pollCmd(m.pollInterval))
 		cmds = append(cmds, loadStatsCmd(m.db, m.statsEpoch))
 		cmds = append(cmds, loadFeedCmd(m.db, m.feedEpoch))
 		cmds = append(cmds, loadSessionsCmd(m.db, m.sessEpoch))
+		cmds = append(cmds, loadTokenBurnCmd(m.db, m.burnEpoch))
+		cmds = append(cmds, loadSparklineCmd(m.db, m.sparklineEpoch))
 		return m, tea.Batch(cmds...)
 
 	case statsLoadedMsg:
@@ -171,10 +227,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if !m.feedLoaded {
-			// First load establishes the baseline — no entries are "new" yet.
 			m.feedLoaded = true
 		} else {
-			// Subsequent loads: mark entries newer than previous latest as new.
 			var latest time.Time
 			for _, e := range m.feed {
 				if e.createdAt.After(latest) {
@@ -195,10 +249,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, tea.Batch(cmds...)
 		}
 		if !m.sessLoaded {
-			// First load establishes the baseline — no sessions are "new" yet.
 			m.sessLoaded = true
 		} else {
-			// Subsequent loads: mark sessions not seen before as new.
 			existing := make(map[string]bool, len(m.sessionsData))
 			for _, e := range m.sessionsData {
 				existing[e.name] = true
@@ -210,7 +262,38 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			}
 		}
 		m.sessionsData = msg.events
-		m.sessCounts = msg.counts
+		return m, tea.Batch(cmds...)
+
+	case tokenBurnLoadedMsg:
+		if msg.epoch == m.burnEpoch {
+			m.tokenBurn = msg.data
+		}
+		return m, tea.Batch(cmds...)
+
+	case sparklineLoadedMsg:
+		if msg.epoch == m.sparklineEpoch {
+			m.sparkline = msg.data
+		}
+		return m, tea.Batch(cmds...)
+
+	case animTickMsg:
+		// Comet ping-pong: ~8 s to cross the full width (160 × 50 ms ticks).
+		// cometDir flips instantly at each edge; cometDirBlend lerps toward it
+		// at 25 % per tick (~300 ms half-transition) so the tail blends smoothly
+		// from one side to the other instead of snapping.
+		const speedPerTick = 1.0 / 160.0
+		const blendRate = 0.25
+		m.cometPos += speedPerTick * float64(m.cometDir)
+		if m.cometPos >= 1.0 {
+			m.cometPos = 1.0
+			m.cometDir = -1
+		} else if m.cometPos <= 0.0 {
+			m.cometPos = 0.0
+			m.cometDir = 1
+		}
+		target := float64(m.cometDir)
+		m.cometDirBlend += (target - m.cometDirBlend) * blendRate
+		cmds = append(cmds, animCmd())
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
@@ -222,12 +305,15 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	return m, tea.Batch(cmds...)
 }
 
-// View renders the side monitor layout. If the terminal is smaller than 60×20
-// it renders a centred size-guard error instead of the normal layout.
+// View renders the side monitor layout:
 //
-// The layout is height-aware: stats and sessions are fixed-height, and the
-// ticket changes feed receives whatever rows remain so the whole page always
-// fits in the viewport without scrolling.
+//	header
+//	[By Status] [By Attention] [By Type]          ← three equal stat boxes
+//	[SESSIONS    ] [TICKET CHANGES             ]  ← 1/3 + 2/3 width
+//	[TOKEN BURN  ]                                ← under sessions, same width
+//	footer
+//
+// Everything is sized to fit m.height — no scrolling.
 func (m RootModel) View() string {
 	if m.width < 60 || m.height < 20 {
 		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 60×20", m.width, m.height)
@@ -236,50 +322,95 @@ func (m RootModel) View() string {
 			lipgloss.NewStyle().Foreground(styles.Danger).Render(errMsg))
 	}
 
-	innerWidth := m.width - 2 // subtract border columns
-
-	// sectionStyle adds a rounded border + 1-row bottom margin.
-	sectionStyle := styles.PanelInactive.
-		Width(innerWidth).
-		MarginBottom(1)
-
-	// Render fixed-height sections first so we can measure them.
+	// — Header —
 	header := renderHeader(m.clock, m.width)
-	statsSection := sectionStyle.Render(renderStats(m.stats, innerWidth))
-	sessionsSection := sectionStyle.Render(renderSessions(m.sessionsData, m.sessCounts, innerWidth))
+	headerH := lipgloss.Height(header)
+
+	// — Footer —
 	footer := lipgloss.NewStyle().
 		Foreground(styles.Muted).
 		Width(m.width).
 		Render("  q quit")
+	footerH := lipgloss.Height(footer)
 
-	// Calculate how many rows are already consumed.
-	used := lipgloss.Height(header) +
-		lipgloss.Height(statsSection) +
-		lipgloss.Height(sessionsSection) +
-		lipgloss.Height(footer)
+	// — Stats row (3 boxes, fixed height) —
+	statsRow := renderStatsRow(m.stats, m.width)
+	statsH := lipgloss.Height(statsRow)
 
-	// Give the remainder to the feed; minimum 3 rows (header + 1 entry + border).
-	feedRows := m.height - used
-	if feedRows < 3 {
-		feedRows = 3
+	// — Comet box (1 content row + 2 border rows = 3 rows total) —
+	const cometBoxH = 3
+	cometBox := styles.PanelInactive.
+		Width(m.width - 2).
+		Height(1).
+		Render(strings.TrimRight(renderCometBar(m.cometPos, m.cometDirBlend, m.width-2), "\n"))
+
+	// — Bottom area —
+	bottomH := m.height - headerH - statsH - cometBoxH - footerH
+	if bottomH < 4 {
+		bottomH = 4
 	}
 
-	// maxEntries = feedRows minus the section frame (border top+bottom = 2,
-	// section header line = 1, bottom margin = 1 → 4 fixed rows in the section).
-	maxEntries := feedRows - 4
+	// Left column: 1/3 width. Feed: 2/3 width.
+	sessW := m.width / 3
+	feedW := m.width - sessW
+
+	// Bottom boxes are 6 rendered rows each (title + content + border = 6).
+	// Both the token burn (left) and velocity sparkline (right) use this height.
+	const smallBoxH = 6
+	const smallBoxContentH = smallBoxH - 2 // 4 lines of content inside border
+
+	// Left column: sessions fills the space above token burn.
+	sessRenderedH := bottomH - smallBoxH
+	if sessRenderedH < 3 {
+		sessRenderedH = 3 // minimum: 1 content line + 2 border rows
+	}
+	sessContentH := sessRenderedH - 2
+
+	// Right column: feed fills the space above velocity sparkline.
+	feedRenderedH := bottomH - smallBoxH
+	if feedRenderedH < 3 {
+		feedRenderedH = 3
+	}
+	feedContentH := feedRenderedH - 2
+	if feedContentH < 1 {
+		feedContentH = 1
+	}
+
+	// maxEntries: feed content = 1 title line + N entry lines.
+	maxEntries := feedContentH - 1
 	if maxEntries < 1 {
 		maxEntries = 1
 	}
 
-	changesSection := sectionStyle.
-		Height(feedRows - 1). // -1 for the MarginBottom counted in sectionStyle
-		Render(renderFeed(m.feed, innerWidth, maxEntries))
+	sessBox := styles.PanelInactive.
+		Width(sessW - 2).
+		Height(sessContentH).
+		Render(strings.TrimRight(renderSessions(m.sessionsData, sessW-2), "\n"))
+
+	burnBox := styles.PanelInactive.
+		Width(sessW - 2).
+		Height(smallBoxContentH).
+		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, sessW-2), "\n"))
+
+	feedBox := styles.PanelInactive.
+		Width(feedW - 2).
+		Height(feedContentH).
+		Render(strings.TrimRight(renderFeed(m.feed, feedW-2, maxEntries), "\n"))
+
+	sparklineBox := styles.PanelInactive.
+		Width(feedW - 2).
+		Height(smallBoxContentH).
+		Render(strings.TrimRight(renderSparkline(m.sparkline, feedW-2), "\n"))
+
+	leftCol := lipgloss.JoinVertical(lipgloss.Left, sessBox, burnBox)
+	rightCol := lipgloss.JoinVertical(lipgloss.Left, feedBox, sparklineBox)
+	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
 
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		statsSection,
-		changesSection,
-		sessionsSection,
+		statsRow,
+		cometBox,
+		bottomRow,
 		footer,
 	)
 }

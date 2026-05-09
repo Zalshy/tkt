@@ -7,8 +7,6 @@ import (
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
-	"github.com/zalshy/tkt/internal/models"
-	"github.com/zalshy/tkt/internal/session"
 	"github.com/zalshy/tkt/internal/tui/styles"
 )
 
@@ -20,18 +18,11 @@ type sessionEvent struct {
 	arrivedAt time.Time // set when first detected as new on a poll cycle; zero for pre-existing
 }
 
-// sessionCounts holds the count of active sessions by base role.
-type sessionCounts struct {
-	arch int
-	impl int
-}
-
-// loadSessions queries recent active sessions (excluding monitor) and returns
-// the list along with arch/impl counts. Returns empty results (not an error)
-// when db is nil.
-func loadSessions(db *sql.DB) ([]sessionEvent, sessionCounts, error) {
+// loadSessions queries the 5 most recent active sessions (excluding monitor).
+// Returns empty results (not an error) when db is nil.
+func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 	if db == nil {
-		return nil, sessionCounts{}, nil
+		return nil, nil
 	}
 
 	rows, err := db.Query(`
@@ -44,7 +35,7 @@ func loadSessions(db *sql.DB) ([]sessionEvent, sessionCounts, error) {
 		LIMIT 5
 	`)
 	if err != nil {
-		return nil, sessionCounts{}, fmt.Errorf("sessions.loadSessions: query: %w", err)
+		return nil, fmt.Errorf("sessions.loadSessions: query: %w", err)
 	}
 	defer rows.Close()
 
@@ -52,69 +43,152 @@ func loadSessions(db *sql.DB) ([]sessionEvent, sessionCounts, error) {
 	for rows.Next() {
 		var e sessionEvent
 		if err := rows.Scan(&e.name, &e.role, &e.startedAt); err != nil {
-			return nil, sessionCounts{}, fmt.Errorf("sessions.loadSessions: scan: %w", err)
+			return nil, fmt.Errorf("sessions.loadSessions: scan: %w", err)
 		}
 		events = append(events, e)
 	}
 	if err := rows.Err(); err != nil {
-		return nil, sessionCounts{}, fmt.Errorf("sessions.loadSessions: rows: %w", err)
+		return nil, fmt.Errorf("sessions.loadSessions: rows: %w", err)
 	}
-
-	countMap, err := session.CountActive(db)
-	if err != nil {
-		// Non-fatal: return the events with zero counts.
-		return events, sessionCounts{}, nil
-	}
-
-	counts := sessionCounts{
-		arch: countMap[models.RoleArchitect],
-		impl: countMap[models.RoleImplementer],
-	}
-
-	return events, counts, nil
+	return events, nil
 }
 
 // renderSessions renders the SESSIONS section.
-func renderSessions(events []sessionEvent, counts sessionCounts, width int) string {
-	headerStyle := lipgloss.NewStyle().
-		Foreground(styles.Primary).
-		Bold(true)
-
+// Layout (top to bottom):
+//
+//	       SESSIONS          ← centered title
+//	  architect   N          ← stacked counts derived from visible events
+//	  implementer N
+//	  ─────────────────      ← divider
+//	  alice-arch  arch  14:28
+//	  bob         impl  09:55
+func renderSessions(events []sessionEvent, width int) string {
 	var sb strings.Builder
-	sb.WriteString(headerStyle.Render("SESSIONS"))
+
+	// — Section header — centered —
+	sb.WriteString(lipgloss.NewStyle().
+		Foreground(styles.Primary).
+		Bold(true).
+		Width(width).
+		Align(lipgloss.Center).
+		Render("SESSIONS"))
 	sb.WriteString("\n")
 
-	if len(events) == 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Faint).Render("  (none)"))
-		sb.WriteString("\n")
-	} else {
-		highlightStyle := lipgloss.NewStyle().
-			Background(styles.Warning).
-			Foreground(styles.BgDeep)
-		normalStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
-
-		for _, e := range events {
-			line := fmt.Sprintf("  %s    started   %s",
-				e.name,
-				e.startedAt.Format("15:04"),
-			)
-			// Truncate to width if needed.
-			if width > 0 && len(line) > width {
-				line = line[:width]
-			}
-			isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
-			if isNew {
-				sb.WriteString(highlightStyle.Render(line))
-			} else {
-				sb.WriteString(normalStyle.Render(line))
-			}
-			sb.WriteString("\n")
+	// — Counts: derived from the visible events so numbers always match the list —
+	var archC, implC int
+	for _, e := range events {
+		switch e.role {
+		case "architect":
+			archC++
+		case "implementer":
+			implC++
 		}
 	}
 
+	archBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#C678DD")).
+		Bold(true).
+		Render("architect")
+	archCount := lipgloss.NewStyle().
+		Foreground(styles.Primary).
+		Bold(true).
+		Render(fmt.Sprintf("  %d", archC))
+
+	implBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#56B6C2")).
+		Bold(true).
+		Render("implementer")
+	implCount := lipgloss.NewStyle().
+		Foreground(styles.Primary).
+		Bold(true).
+		Render(fmt.Sprintf("  %d", implC))
+
+	sb.WriteString("  " + archBadge + archCount)
 	sb.WriteString("\n")
-	countsLine := fmt.Sprintf("  arch: %d   impl: %d", counts.arch, counts.impl)
-	sb.WriteString(lipgloss.NewStyle().Foreground(styles.Muted).Render(countsLine))
+	sb.WriteString("  " + implBadge + implCount)
+	sb.WriteString("\n")
+
+	// — Divider —
+	divW := width - 2
+	if divW < 1 {
+		divW = 1
+	}
+	sb.WriteString("  ")
+	sb.WriteString(lipgloss.NewStyle().
+		Foreground(styles.Faint).
+		Render(strings.Repeat("─", divW)))
+	sb.WriteString("\n")
+
+	// — Session rows — dynamic nameW so each row fills the available width —
+	if len(events) == 0 {
+		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Faint).Render("  (none)"))
+		return sb.String()
+	}
+
+	// Layout: indent(2) + name(nameW) + role(5) + time(5) = width
+	const indent = 2
+	const roleColW = 5 // "arch " or "impl " (4 + 1 space)
+	const timeColW = 5 // "15:04"
+	nameW := width - indent - roleColW - timeColW
+	if nameW < 8 {
+		nameW = 8
+	}
+
+	highlightStyle := lipgloss.NewStyle().
+		Background(styles.Warning).
+		Foreground(styles.BgDeep)
+
+	for _, e := range events {
+		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
+
+		name := e.name
+		if len(name) > nameW {
+			name = name[:nameW-1] + "…"
+		}
+
+		if isNew {
+			line := fmt.Sprintf("  %-*s %-4s %s",
+				nameW, name, roleAbbrev(e.role), e.startedAt.Format("15:04"))
+			sb.WriteString(highlightStyle.Render(line))
+		} else {
+			roleLabel, roleColor := roleStyle(e.role)
+			sb.WriteString("  ")
+			sb.WriteString(lipgloss.NewStyle().
+				Foreground(sessionColor(e.name)).
+				Render(fmt.Sprintf("%-*s", nameW, name)))
+			sb.WriteString(lipgloss.NewStyle().
+				Foreground(roleColor).Bold(true).
+				Render(fmt.Sprintf("%-*s", roleColW, roleLabel)))
+			sb.WriteString(lipgloss.NewStyle().
+				Foreground(styles.Secondary).
+				Render(e.startedAt.Format("15:04")))
+		}
+		sb.WriteString("\n")
+	}
 
 	return sb.String()
+}
+
+// roleAbbrev returns the short label for a base role.
+func roleAbbrev(role string) string {
+	switch role {
+	case "architect":
+		return "arch"
+	case "implementer":
+		return "impl"
+	default:
+		return role
+	}
+}
+
+// roleStyle returns the short label and brand colour for a base role.
+func roleStyle(role string) (string, lipgloss.Color) {
+	switch role {
+	case "architect":
+		return "arch", lipgloss.Color("#C678DD")
+	case "implementer":
+		return "impl", lipgloss.Color("#56B6C2")
+	default:
+		return role, styles.Muted
+	}
 }

@@ -1,12 +1,10 @@
 package side
 
 import (
-	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
-	"github.com/zalshy/tkt/internal/tui/styles"
 )
 
 // clockTickMsg is sent when the next wall-clock minute boundary arrives.
@@ -17,14 +15,10 @@ type clockModel struct {
 	now time.Time
 }
 
-// newClockModel returns a clockModel initialised to the current time.
 func newClockModel() clockModel {
 	return clockModel{now: time.Now()}
 }
 
-// clockCmd returns a tea.Cmd that fires at the next wall-clock minute boundary.
-// It computes the exact duration until the next minute so the clock is always
-// pinned to real minute transitions rather than drifting over time.
 func clockCmd() tea.Cmd {
 	next := time.Now().Truncate(time.Minute).Add(time.Minute)
 	return tea.Tick(time.Until(next), func(time.Time) tea.Msg {
@@ -32,8 +26,6 @@ func clockCmd() tea.Cmd {
 	})
 }
 
-// update advances the clock on a clockTickMsg and reschedules the next tick.
-// All other messages are ignored.
 func (c clockModel) update(msg tea.Msg) (clockModel, tea.Cmd) {
 	if _, ok := msg.(clockTickMsg); ok {
 		c.now = time.Now()
@@ -42,36 +34,41 @@ func (c clockModel) update(msg tea.Msg) (clockModel, tea.Cmd) {
 	return c, nil
 }
 
-// renderHeader renders the single-line side-monitor header.
-// Left side: "  tkt side" in styles.Primary, bold.
-// Right side: current time formatted as "HH:MM" in styles.Secondary.
-// The header renders on a slightly elevated background so it stands out from
-// the terminal default and acts as a clear top anchor for the layout.
-func renderHeader(c clockModel, width int) string {
-	left := lipgloss.NewStyle().
-		Foreground(styles.Primary).
-		Bold(true).
-		Render("  tkt side")
+// Header colour constants.
+var (
+	pillBg  = lipgloss.Color("#C678DD") // purple-pink — fills the entire title area
+	pillFg  = lipgloss.Color("#0D0F14") // near-black text on bright badge
+	clockBg = lipgloss.Color("#56B6C2") // cyan clock badge on the right
+	clockFg = lipgloss.Color("#0D0F14")
+)
 
-	right := lipgloss.NewStyle().
-		Foreground(styles.Muted).
+// renderHeader renders a full-width header bar:
+//
+//	│           tkt monitoring           │ 17:12 │
+//
+// The entire left portion uses the purple-pink background with the title
+// centered. The clock keeps its cyan badge pinned to the right edge.
+func renderHeader(c clockModel, width int) string {
+	clockBadge := lipgloss.NewStyle().
+		Background(clockBg).
+		Foreground(clockFg).
+		Bold(true).
+		Padding(0, 1).
 		Render(c.now.Format("15:04"))
 
-	// Push the clock to the right edge.
-	leftWidth := lipgloss.Width(left)
-	rightWidth := lipgloss.Width(right)
-	spacer := width - leftWidth - rightWidth
-	if spacer < 0 {
-		spacer = 0
+	clockW := lipgloss.Width(clockBadge)
+	titleW := width - clockW
+	if titleW < 0 {
+		titleW = 0
 	}
 
-	titleRow := left + lipgloss.NewStyle().Width(spacer).Render("") + right
+	titlePart := lipgloss.NewStyle().
+		Background(pillBg).
+		Foreground(pillFg).
+		Bold(true).
+		Width(titleW).
+		Align(lipgloss.Center).
+		Render("tkt monitoring")
 
-	// A full-width divider line makes the header anchor unmistakably visible
-	// regardless of the terminal's default background color.
-	divider := lipgloss.NewStyle().
-		Foreground(styles.Faint).
-		Render(strings.Repeat("─", width))
-
-	return lipgloss.JoinVertical(lipgloss.Left, titleRow, divider)
+	return lipgloss.JoinHorizontal(lipgloss.Top, titlePart, clockBadge)
 }
