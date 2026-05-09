@@ -1,6 +1,7 @@
 package side
 
 import (
+	"strings"
 	"time"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -43,8 +44,9 @@ func (c clockModel) update(msg tea.Msg) (clockModel, tea.Cmd) {
 
 // renderHeader renders the single-line side-monitor header.
 // Left side: "  tkt side" in styles.Primary, bold.
-// Right side: current time formatted as "HH:MM" in styles.Muted.
-// The two pieces are joined to fill exactly width columns.
+// Right side: current time formatted as "HH:MM" in styles.Secondary.
+// The header renders on a slightly elevated background so it stands out from
+// the terminal default and acts as a clear top anchor for the layout.
 func renderHeader(c clockModel, width int) string {
 	left := lipgloss.NewStyle().
 		Foreground(styles.Primary).
@@ -55,7 +57,7 @@ func renderHeader(c clockModel, width int) string {
 		Foreground(styles.Muted).
 		Render(c.now.Format("15:04"))
 
-	// Calculate the number of spaces needed to push the clock to the right edge.
+	// Push the clock to the right edge.
 	leftWidth := lipgloss.Width(left)
 	rightWidth := lipgloss.Width(right)
 	spacer := width - leftWidth - rightWidth
@@ -63,7 +65,13 @@ func renderHeader(c clockModel, width int) string {
 		spacer = 0
 	}
 
-	return lipgloss.NewStyle().
-		Width(width).
-		Render(left + lipgloss.NewStyle().Width(spacer).Render("") + right)
+	titleRow := left + lipgloss.NewStyle().Width(spacer).Render("") + right
+
+	// A full-width divider line makes the header anchor unmistakably visible
+	// regardless of the terminal's default background color.
+	divider := lipgloss.NewStyle().
+		Foreground(styles.Faint).
+		Render(strings.Repeat("─", width))
+
+	return lipgloss.JoinVertical(lipgloss.Left, titleRow, divider)
 }

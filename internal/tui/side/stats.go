@@ -77,7 +77,71 @@ func loadStats(db *sql.DB) (statsData, error) {
 	return s, rows.Err()
 }
 
-// renderStats renders the STATS section as a plain string (no border).
+// colRow is a single label+count line for a stats column.
+type colRow struct {
+	label string // plain text label
+	color lipgloss.Color
+	count int
+}
+
+// renderStatCol renders one vertical stats column (header + rows) into a
+// string of exactly colWidth columns. Each row shows a colored label and a
+// right-aligned count. A mini bar (█/░) fills the remaining space.
+func renderStatCol(header string, rows []colRow, colWidth int) string {
+	if colWidth < 4 {
+		colWidth = 4
+	}
+
+	headerLine := lipgloss.NewStyle().
+		Foreground(styles.Secondary).
+		Bold(false).
+		Width(colWidth).
+		Render(header)
+
+	maxCount := 0
+	for _, r := range rows {
+		if r.count > maxCount {
+			maxCount = r.count
+		}
+	}
+
+	// label(8) + " " + bar + " " + count(3) = colWidth
+	const labelW = 8
+	const countW = 3
+	const fixed = labelW + 1 + 1 + countW // label + space + space + count
+	barW := colWidth - fixed
+	if barW < 1 {
+		barW = 1
+	}
+
+	var lines []string
+	lines = append(lines, headerLine)
+	for _, r := range rows {
+		label := r.label
+		if len(label) > labelW {
+			label = label[:labelW-1] + "…"
+		}
+
+		filled := 0
+		if maxCount > 0 {
+			filled = int(float64(barW) * float64(r.count) / float64(maxCount))
+		}
+		empty := barW - filled
+
+		labelStr := lipgloss.NewStyle().Foreground(r.color).Render(fmt.Sprintf("%-*s", labelW, label))
+		barStr := lipgloss.NewStyle().Foreground(r.color).Render(strings.Repeat("█", filled)) +
+			lipgloss.NewStyle().Foreground(styles.Faint).Render(strings.Repeat("░", empty))
+		countStr := lipgloss.NewStyle().Foreground(styles.Muted).Render(fmt.Sprintf("%*d", countW, r.count))
+
+		line := labelStr + " " + barStr + " " + countStr
+		lines = append(lines, line)
+	}
+
+	return lipgloss.JoinVertical(lipgloss.Left, lines...)
+}
+
+// renderStats renders the STATS section as three equal vertical columns:
+// by status | by attention level | by main_type.
 // The border is applied in model.go via sectionStyle.
 func renderStats(s statsData, width int) string {
 	// Zero-data guard.
@@ -92,22 +156,22 @@ func renderStats(s statsData, width int) string {
 		return lipgloss.JoinVertical(lipgloss.Left, header, loading)
 	}
 
-	var sb strings.Builder
-
 	// Section header.
-	sb.WriteString(lipgloss.NewStyle().
+	sectionHeader := lipgloss.NewStyle().
 		Foreground(styles.Primary).
 		Bold(true).
-		Render("STATS"))
-	sb.WriteString("\n\n")
+		Render("STATS")
 
-	// Sub-header: by status.
-	sb.WriteString(lipgloss.NewStyle().
-		Foreground(styles.Secondary).
-		Render("by status"))
-	sb.WriteString("\n")
+	// Divide width into 3 equal columns, with 1-char separator gaps.
+	// total = 3*colW + 2*1 → colW = (width - 2) / 3
+	colWidth := (width - 2) / 3
+	if colWidth < 8 {
+		colWidth = 8
+	}
 
-	// Status bar chart.
+	sep := lipgloss.NewStyle().Foreground(styles.Faint).Render("│")
+
+	// — Column 1: by status —
 	statusOrder := []string{"TODO", "PLANNING", "IN_PROGRESS", "DONE", "VERIFIED"}
 	statusColors := map[string]lipgloss.Color{
 		"TODO":        styles.StatusTodo,
@@ -116,65 +180,17 @@ func renderStats(s statsData, width int) string {
 		"DONE":        styles.StatusDone,
 		"VERIFIED":    styles.StatusVerified,
 	}
-
-	const labelWidth = 12
-	const countWidth = 4 // space + 3 digit count
-	const padding = 1
-
-	// barWidth = width - labelWidth - countWidth - padding, clamped to min 4.
-	barWidth := width - labelWidth - countWidth - padding
-	if barWidth < 4 {
-		barWidth = 4
-	}
-
-	// Find max count for normalisation.
-	maxCount := 0
+	var statusRows []colRow
 	for _, st := range statusOrder {
-		if n := s.byStatus[st]; n > maxCount {
-			maxCount = n
-		}
+		statusRows = append(statusRows, colRow{
+			label: st,
+			color: statusColors[st],
+			count: s.byStatus[st],
+		})
 	}
+	col1 := renderStatCol("by status", statusRows, colWidth)
 
-	for _, st := range statusOrder {
-		count := s.byStatus[st]
-		color := statusColors[st]
-
-		// Label: left-aligned, padded to labelWidth.
-		label := fmt.Sprintf("  %-*s", labelWidth-2, st)
-
-		// Bar: filled + empty chars, max-normalised.
-		filled := 0
-		if maxCount > 0 {
-			filled = int(float64(barWidth) * float64(count) / float64(maxCount))
-		}
-		empty := barWidth - filled
-
-		filledStr := lipgloss.NewStyle().Foreground(color).Render(strings.Repeat("█", filled))
-		emptyStr := lipgloss.NewStyle().Foreground(styles.Faint).Render(strings.Repeat("░", empty))
-
-		countStr := fmt.Sprintf("%3d", count)
-
-		sb.WriteString(label + filledStr + emptyStr + " " + countStr + "\n")
-	}
-
-	sb.WriteString("\n")
-
-	// Two-column section: attention level + main_type.
-	colWidth := (width - 3) / 2
-	if colWidth < 4 {
-		colWidth = 4
-	}
-
-	// Sub-headers.
-	attnHeader := lipgloss.NewStyle().Foreground(styles.Secondary).Render("by attention level")
-	typeHeader := lipgloss.NewStyle().Foreground(styles.Secondary).Render("by main_type")
-	sep := lipgloss.NewStyle().Foreground(styles.Faint).Render("│")
-
-	attnHeaderPad := lipgloss.NewStyle().Width(colWidth).Render(attnHeader)
-	typeHeaderPad := lipgloss.NewStyle().Width(colWidth).Render(typeHeader)
-	sb.WriteString(attnHeaderPad + sep + typeHeaderPad + "\n")
-
-	// Attention column rows.
+	// — Column 2: by attention level —
 	attentionOrder := []string{"critical", "high", "medium", "low", "unset"}
 	attentionColors := map[string]lipgloss.Color{
 		"critical": styles.AttentionE,
@@ -183,26 +199,17 @@ func renderStats(s statsData, width int) string {
 		"low":      styles.AttentionA,
 		"unset":    styles.Muted,
 	}
-
-	var attnRows []string
-	if len(s.byAttention) == 0 {
-		attnRows = []string{
-			lipgloss.NewStyle().Foreground(styles.Muted).Render("  (none)"),
-		}
-	} else {
-		for _, band := range attentionOrder {
-			n := s.byAttention[band]
-			color := attentionColors[band]
-			label := lipgloss.NewStyle().Foreground(color).Render(band)
-			// Right-align count within available space.
-			labelRaw := fmt.Sprintf("  %-8s %3d", band, n)
-			_ = labelRaw
-			line := fmt.Sprintf("  %s %3d", label, n)
-			attnRows = append(attnRows, line)
-		}
+	var attnRows []colRow
+	for _, band := range attentionOrder {
+		attnRows = append(attnRows, colRow{
+			label: band,
+			color: attentionColors[band],
+			count: s.byAttention[band],
+		})
 	}
+	col2 := renderStatCol("by attention", attnRows, colWidth)
 
-	// Main type column rows: sorted by count desc, then alpha; "(none)" last.
+	// — Column 3: by main_type — top 5, sorted by count desc then alpha.
 	type nameCount struct {
 		name  string
 		count int
@@ -223,43 +230,55 @@ func renderStats(s statsData, width int) string {
 		}
 		return types[i].name < types[j].name
 	})
-	// Top 5 only.
 	if len(types) > 5 {
 		types = types[:5]
 	}
+	var typeRows []colRow
+	for _, tc := range types {
+		typeRows = append(typeRows, colRow{
+			label: tc.name,
+			color: styles.Secondary,
+			count: tc.count,
+		})
+	}
+	col3 := renderStatCol("by type", typeRows, colWidth)
 
-	var typeRows []string
-	if len(types) == 0 {
-		typeRows = []string{
-			lipgloss.NewStyle().Foreground(styles.Muted).Render("  (none)"),
+	// Join the three columns side-by-side, row by row.
+	col1Lines := strings.Split(col1, "\n")
+	col2Lines := strings.Split(col2, "\n")
+	col3Lines := strings.Split(col3, "\n")
+
+	maxLines := len(col1Lines)
+	if len(col2Lines) > maxLines {
+		maxLines = len(col2Lines)
+	}
+	if len(col3Lines) > maxLines {
+		maxLines = len(col3Lines)
+	}
+
+	empty1 := lipgloss.NewStyle().Width(colWidth).Render("")
+	empty2 := lipgloss.NewStyle().Width(colWidth).Render("")
+	empty3 := lipgloss.NewStyle().Width(colWidth).Render("")
+
+	var sb strings.Builder
+	sb.WriteString(sectionHeader)
+	sb.WriteString("\n")
+	for i := 0; i < maxLines; i++ {
+		l1, l2, l3 := empty1, empty2, empty3
+		if i < len(col1Lines) {
+			l1 = col1Lines[i]
 		}
-	} else {
-		for _, tc := range types {
-			line := fmt.Sprintf("  %-8s %3d", tc.name, tc.count)
-			typeRows = append(typeRows, line)
+		if i < len(col2Lines) {
+			l2 = col2Lines[i]
+		}
+		if i < len(col3Lines) {
+			l3 = col3Lines[i]
+		}
+		sb.WriteString(l1 + sep + l2 + sep + l3)
+		if i < maxLines-1 {
+			sb.WriteString("\n")
 		}
 	}
 
-	// Render rows side by side, padding to colWidth with separator.
-	maxRows := len(attnRows)
-	if len(typeRows) > maxRows {
-		maxRows = len(typeRows)
-	}
-	for i := 0; i < maxRows; i++ {
-		var left, right string
-		if i < len(attnRows) {
-			left = attnRows[i]
-		}
-		if i < len(typeRows) {
-			right = typeRows[i]
-		}
-		leftPad := lipgloss.NewStyle().Width(colWidth).Render(left)
-		rightPad := lipgloss.NewStyle().Width(colWidth).Render(right)
-		sb.WriteString(leftPad + sep + rightPad + "\n")
-	}
-
-	// Trim final newline.
-	result := sb.String()
-	result = strings.TrimRight(result, "\n")
-	return result
+	return sb.String()
 }

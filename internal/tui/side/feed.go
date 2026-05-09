@@ -80,7 +80,9 @@ func relAge(t time.Time) string {
 }
 
 // renderFeed renders the TICKET CHANGES section.
-func renderFeed(entries []feedEntry, width int) string {
+// maxEntries caps how many rows are shown so the section fits the available height.
+// Pass 0 or negative to show all entries.
+func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 	headerStyle := lipgloss.NewStyle().
 		Foreground(styles.Primary).
 		Bold(true)
@@ -94,27 +96,79 @@ func renderFeed(entries []feedEntry, width int) string {
 		return sb.String()
 	}
 
+	// Cap entries to maxEntries if set.
+	if maxEntries > 0 && len(entries) > maxEntries {
+		entries = entries[:maxEntries]
+	}
+
 	highlightStyle := lipgloss.NewStyle().
 		Background(styles.Warning).
 		Foreground(styles.BgDeep)
 	normalStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
+	markerStyle := lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
+	mutedStyle := lipgloss.NewStyle().Foreground(styles.Muted)
 
-	for _, e := range entries {
-		line := fmt.Sprintf("  %s · #%d → %s    %s",
-			e.sessionName,
-			e.ticketID,
-			e.toState,
-			relAge(e.createdAt),
-		)
-		// Truncate to width if needed.
-		if width > 0 && len(line) > width {
-			line = line[:width]
+	// Column widths: fixed layout so columns align across rows.
+	// marker(2) + session(16) + " · " + ticket(6) + " → " + state(12) + age(4)
+	const sessionW = 16
+	const stateW = 12
+	const ageW = 4
+
+	for i, e := range entries {
+		marker := "  "
+		if i == 0 {
+			marker = markerStyle.Render("▶ ")
 		}
+
+		session := e.sessionName
+		if len(session) > sessionW {
+			session = session[:sessionW-1] + "…"
+		}
+
+		ticket := fmt.Sprintf("#%d", e.ticketID)
+
+		state := e.toState
+		if len(state) > stateW {
+			state = state[:stateW]
+		}
+
+		age := relAge(e.createdAt)
+
+		// Build fixed-width plain line for truncation check.
+		plain := fmt.Sprintf("%s%-*s · %-6s → %-*s %*s",
+			marker,
+			sessionW, session,
+			ticket,
+			stateW, state,
+			ageW, age,
+		)
+		if width > 0 && lipgloss.Width(plain) > width {
+			plain = plain[:width]
+		}
+
 		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
-		if isNew {
-			sb.WriteString(highlightStyle.Render(line))
+		if i == 0 {
+			// First row: render marker separately so it keeps its bold style,
+			// then render the rest with the appropriate row style.
+			rest := fmt.Sprintf("%-*s · %-6s → %-*s %*s",
+				sessionW, session,
+				ticket,
+				stateW, state,
+				ageW, age,
+			)
+			if isNew {
+				sb.WriteString(highlightStyle.Render("▶ " + rest))
+			} else {
+				sb.WriteString(markerStyle.Render("▶ "))
+				sb.WriteString(normalStyle.Render(rest))
+			}
 		} else {
-			sb.WriteString(normalStyle.Render(line))
+			if isNew {
+				sb.WriteString(highlightStyle.Render(plain))
+			} else {
+				_ = mutedStyle
+				sb.WriteString(normalStyle.Render(plain))
+			}
 		}
 		sb.WriteString("\n")
 	}

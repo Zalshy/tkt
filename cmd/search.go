@@ -18,7 +18,7 @@ var (
 
 var searchCmd = &cobra.Command{
 	Use:   "search <query>",
-	Short: "Full-text search across ticket titles and descriptions",
+	Short: "Search across ticket titles, descriptions, plans, and comments",
 	Args:  cobra.ExactArgs(1),
 	RunE:  runSearch,
 }

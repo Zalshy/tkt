@@ -55,9 +55,11 @@ type RootModel struct {
 	statsEpoch   int
 	feed         []feedEntry
 	feedEpoch    int
+	feedLoaded   bool // true after the first successful feed load (baseline)
 	sessionsData []sessionEvent
 	sessCounts   sessionCounts
 	sessEpoch    int
+	sessLoaded   bool // true after the first successful sessions load (baseline)
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
@@ -168,17 +170,21 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.epoch != m.feedEpoch {
 			return m, tea.Batch(cmds...)
 		}
-		// New-entry detection: find the most recent createdAt in the stored feed.
-		var latest time.Time
-		for _, e := range m.feed {
-			if e.createdAt.After(latest) {
-				latest = e.createdAt
+		if !m.feedLoaded {
+			// First load establishes the baseline — no entries are "new" yet.
+			m.feedLoaded = true
+		} else {
+			// Subsequent loads: mark entries newer than previous latest as new.
+			var latest time.Time
+			for _, e := range m.feed {
+				if e.createdAt.After(latest) {
+					latest = e.createdAt
+				}
 			}
-		}
-		// Any entry with createdAt strictly newer than the previous latest is new.
-		for i := range msg.entries {
-			if msg.entries[i].createdAt.After(latest) {
-				msg.entries[i].arrivedAt = time.Now()
+			for i := range msg.entries {
+				if msg.entries[i].createdAt.After(latest) {
+					msg.entries[i].arrivedAt = time.Now()
+				}
 			}
 		}
 		m.feed = msg.entries
@@ -188,14 +194,19 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.epoch != m.sessEpoch {
 			return m, tea.Batch(cmds...)
 		}
-		// New-entry detection: check if session name was absent from the stored set.
-		existing := make(map[string]bool, len(m.sessionsData))
-		for _, e := range m.sessionsData {
-			existing[e.name] = true
-		}
-		for i := range msg.events {
-			if !existing[msg.events[i].name] {
-				msg.events[i].arrivedAt = time.Now()
+		if !m.sessLoaded {
+			// First load establishes the baseline — no sessions are "new" yet.
+			m.sessLoaded = true
+		} else {
+			// Subsequent loads: mark sessions not seen before as new.
+			existing := make(map[string]bool, len(m.sessionsData))
+			for _, e := range m.sessionsData {
+				existing[e.name] = true
+			}
+			for i := range msg.events {
+				if !existing[msg.events[i].name] {
+					msg.events[i].arrivedAt = time.Now()
+				}
 			}
 		}
 		m.sessionsData = msg.events
@@ -213,6 +224,10 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 // View renders the side monitor layout. If the terminal is smaller than 60×20
 // it renders a centred size-guard error instead of the normal layout.
+//
+// The layout is height-aware: stats and sessions are fixed-height, and the
+// ticket changes feed receives whatever rows remain so the whole page always
+// fits in the viewport without scrolling.
 func (m RootModel) View() string {
 	if m.width < 60 || m.height < 20 {
 		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 60×20", m.width, m.height)
@@ -221,28 +236,50 @@ func (m RootModel) View() string {
 			lipgloss.NewStyle().Foreground(styles.Danger).Render(errMsg))
 	}
 
+	innerWidth := m.width - 2 // subtract border columns
+
+	// sectionStyle adds a rounded border + 1-row bottom margin.
 	sectionStyle := styles.PanelInactive.
-		Width(m.width - 2).
+		Width(innerWidth).
 		MarginBottom(1)
 
+	// Render fixed-height sections first so we can measure them.
 	header := renderHeader(m.clock, m.width)
-
-	stats := sectionStyle.Render(renderStats(m.stats, m.width-2))
-
-	changes := sectionStyle.Render(renderFeed(m.feed, m.width-2))
-
-	sessions := sectionStyle.Render(renderSessions(m.sessionsData, m.sessCounts, m.width-2))
-
+	statsSection := sectionStyle.Render(renderStats(m.stats, innerWidth))
+	sessionsSection := sectionStyle.Render(renderSessions(m.sessionsData, m.sessCounts, innerWidth))
 	footer := lipgloss.NewStyle().
 		Foreground(styles.Muted).
 		Width(m.width).
 		Render("  q quit")
 
+	// Calculate how many rows are already consumed.
+	used := lipgloss.Height(header) +
+		lipgloss.Height(statsSection) +
+		lipgloss.Height(sessionsSection) +
+		lipgloss.Height(footer)
+
+	// Give the remainder to the feed; minimum 3 rows (header + 1 entry + border).
+	feedRows := m.height - used
+	if feedRows < 3 {
+		feedRows = 3
+	}
+
+	// maxEntries = feedRows minus the section frame (border top+bottom = 2,
+	// section header line = 1, bottom margin = 1 → 4 fixed rows in the section).
+	maxEntries := feedRows - 4
+	if maxEntries < 1 {
+		maxEntries = 1
+	}
+
+	changesSection := sectionStyle.
+		Height(feedRows - 1). // -1 for the MarginBottom counted in sectionStyle
+		Render(renderFeed(m.feed, innerWidth, maxEntries))
+
 	return lipgloss.JoinVertical(lipgloss.Left,
 		header,
-		stats,
-		changes,
-		sessions,
+		statsSection,
+		changesSection,
+		sessionsSection,
 		footer,
 	)
 }
