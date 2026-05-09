@@ -25,6 +25,21 @@ type statsLoadedMsg struct {
 	epoch int
 }
 
+// feedLoadedMsg carries freshly-loaded feed entries and the epoch it was
+// requested at. Stale loads (epoch mismatch) are discarded.
+type feedLoadedMsg struct {
+	entries []feedEntry
+	epoch   int
+}
+
+// sessionsLoadedMsg carries freshly-loaded session events and counts and the
+// epoch it was requested at. Stale loads (epoch mismatch) are discarded.
+type sessionsLoadedMsg struct {
+	events []sessionEvent
+	counts sessionCounts
+	epoch  int
+}
+
 // RootModel is the top-level BubbleTea model for the side monitor mode.
 // It renders three sections (STATS, TICKET CHANGES, SESSIONS)
 // with a minimal single-line header (including a HH:MM clock) and footer.
@@ -38,6 +53,11 @@ type RootModel struct {
 	clock        clockModel
 	stats        statsData
 	statsEpoch   int
+	feed         []feedEntry
+	feedEpoch    int
+	sessionsData []sessionEvent
+	sessCounts   sessionCounts
+	sessEpoch    int
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
@@ -73,14 +93,41 @@ func loadStatsCmd(db *sql.DB, epoch int) tea.Cmd {
 	}
 }
 
-// Init satisfies tea.Model. Starts the poll tick, clock tick, and initial stats load.
+// loadFeedCmd returns a tea.Cmd that loads the ticket changes feed in the
+// background and sends a feedLoadedMsg tagged with the given epoch.
+func loadFeedCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := loadFeed(db)
+		if err != nil {
+			return feedLoadedMsg{entries: nil, epoch: epoch}
+		}
+		return feedLoadedMsg{entries: entries, epoch: epoch}
+	}
+}
+
+// loadSessionsCmd returns a tea.Cmd that loads active sessions in the
+// background and sends a sessionsLoadedMsg tagged with the given epoch.
+func loadSessionsCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		events, counts, err := loadSessions(db)
+		if err != nil {
+			return sessionsLoadedMsg{epoch: epoch}
+		}
+		return sessionsLoadedMsg{events: events, counts: counts, epoch: epoch}
+	}
+}
+
+// Init satisfies tea.Model. Starts the poll tick, clock tick, and initial
+// stats/feed/sessions load.
 // Note: Init uses a value receiver — mutations inside Init are discarded.
-// statsEpoch is 0 on construction; pass it directly without mutating.
+// All epoch values are 0 on construction; pass them directly without mutating.
 func (m RootModel) Init() tea.Cmd {
 	return tea.Batch(
 		pollCmd(m.pollInterval),
 		clockCmd(),
 		loadStatsCmd(m.db, m.statsEpoch),
+		loadFeedCmd(m.db, m.feedEpoch),
+		loadSessionsCmd(m.db, m.sessEpoch),
 	)
 }
 
@@ -103,14 +150,56 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case pollTickMsg:
 		m.statsEpoch++
+		m.feedEpoch++
+		m.sessEpoch++
 		cmds = append(cmds, pollCmd(m.pollInterval))
 		cmds = append(cmds, loadStatsCmd(m.db, m.statsEpoch))
+		cmds = append(cmds, loadFeedCmd(m.db, m.feedEpoch))
+		cmds = append(cmds, loadSessionsCmd(m.db, m.sessEpoch))
 		return m, tea.Batch(cmds...)
 
 	case statsLoadedMsg:
 		if msg.epoch == m.statsEpoch {
 			m.stats = msg.data
 		}
+		return m, tea.Batch(cmds...)
+
+	case feedLoadedMsg:
+		if msg.epoch != m.feedEpoch {
+			return m, tea.Batch(cmds...)
+		}
+		// New-entry detection: find the most recent createdAt in the stored feed.
+		var latest time.Time
+		for _, e := range m.feed {
+			if e.createdAt.After(latest) {
+				latest = e.createdAt
+			}
+		}
+		// Any entry with createdAt strictly newer than the previous latest is new.
+		for i := range msg.entries {
+			if msg.entries[i].createdAt.After(latest) {
+				msg.entries[i].arrivedAt = time.Now()
+			}
+		}
+		m.feed = msg.entries
+		return m, tea.Batch(cmds...)
+
+	case sessionsLoadedMsg:
+		if msg.epoch != m.sessEpoch {
+			return m, tea.Batch(cmds...)
+		}
+		// New-entry detection: check if session name was absent from the stored set.
+		existing := make(map[string]bool, len(m.sessionsData))
+		for _, e := range m.sessionsData {
+			existing[e.name] = true
+		}
+		for i := range msg.events {
+			if !existing[msg.events[i].name] {
+				msg.events[i].arrivedAt = time.Now()
+			}
+		}
+		m.sessionsData = msg.events
+		m.sessCounts = msg.counts
 		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
@@ -140,11 +229,9 @@ func (m RootModel) View() string {
 
 	stats := sectionStyle.Render(renderStats(m.stats, m.width-2))
 
-	changes := sectionStyle.Render(
-		lipgloss.NewStyle().Foreground(styles.Muted).Render("[ TICKET CHANGES ]"))
+	changes := sectionStyle.Render(renderFeed(m.feed, m.width-2))
 
-	sessions := sectionStyle.Render(
-		lipgloss.NewStyle().Foreground(styles.Muted).Render("[ SESSIONS ]"))
+	sessions := sectionStyle.Render(renderSessions(m.sessionsData, m.sessCounts, m.width-2))
 
 	footer := lipgloss.NewStyle().
 		Foreground(styles.Muted).
