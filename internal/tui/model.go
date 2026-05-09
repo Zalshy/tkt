@@ -26,7 +26,7 @@ import (
 )
 
 const headerHeight = 2
-const footerHeight = 2
+const footerHeight = 1
 
 // pollTickMsg is sent by pollCmd on each poll interval.
 type pollTickMsg struct{}
