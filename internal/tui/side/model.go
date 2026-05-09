@@ -20,8 +20,8 @@ func pollCmd(d time.Duration) tea.Cmd {
 
 // RootModel is the top-level BubbleTea model for the side monitor mode.
 // It renders three placeholder sections (STATS, TICKET CHANGES, SESSIONS)
-// with a minimal single-line header and footer. Child components are added
-// in subsequent tickets (#202–#204).
+// with a minimal single-line header (including a HH:MM clock) and footer.
+// Child components are added in subsequent tickets (#203–#204).
 type RootModel struct {
 	db           *sql.DB
 	cfg          *config.ProjectConfig
@@ -29,6 +29,7 @@ type RootModel struct {
 	width        int
 	height       int
 	pollInterval time.Duration
+	clock        clockModel
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
@@ -46,24 +47,35 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 		cfg:          cfg,
 		root:         root,
 		pollInterval: interval,
+		clock:        newClockModel(),
 	}
 }
 
-// Init satisfies tea.Model. Starts the poll tick — no board or animation init.
+// Init satisfies tea.Model. Starts the poll tick and the clock tick.
 func (m RootModel) Init() tea.Cmd {
-	return pollCmd(m.pollInterval)
+	return tea.Batch(pollCmd(m.pollInterval), clockCmd())
 }
 
-// Update handles window resize, poll ticks, and quit keys.
+// Update handles window resize, poll ticks, clock ticks, and quit keys.
 func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
+	var cmds []tea.Cmd
+
+	// Forward every message to the clock sub-model.
+	var clockC tea.Cmd
+	m.clock, clockC = m.clock.update(msg)
+	if clockC != nil {
+		cmds = append(cmds, clockC)
+	}
+
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
+		return m, tea.Batch(cmds...)
 
 	case pollTickMsg:
-		return m, pollCmd(m.pollInterval)
+		cmds = append(cmds, pollCmd(m.pollInterval))
+		return m, tea.Batch(cmds...)
 
 	case tea.KeyMsg:
 		if msg.Type == tea.KeyCtrlC || msg.String() == "q" {
@@ -71,7 +83,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 	}
 
-	return m, nil
+	return m, tea.Batch(cmds...)
 }
 
 // View renders the side monitor layout. If the terminal is smaller than 60×20
@@ -88,11 +100,7 @@ func (m RootModel) View() string {
 		Width(m.width - 2).
 		MarginBottom(1)
 
-	header := lipgloss.NewStyle().
-		Foreground(styles.Primary).
-		Bold(true).
-		Width(m.width).
-		Render("  tkt side")
+	header := renderHeader(m.clock, m.width)
 
 	stats := sectionStyle.Render(
 		lipgloss.NewStyle().Foreground(styles.Muted).Render("[ STATS ]"))
