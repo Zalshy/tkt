@@ -105,69 +105,35 @@ feed, token burn totals, and a velocity sparkline.
 
 ### Header
 
-A full-width purple pill containing the wordmark "tkt monitoring". A cyan clock badge is
-pinned to the right edge showing `HH:MM`. The clock updates at the next minute boundary,
-not every second.
+Full-width title bar with a `HH:MM` clock pinned to the right.
 
 ### Stats row
 
-Three equal-width boxes displayed side by side: **By Status**, **By Attention**, and
-**By Type**. Each box has a centred title, a blank line, then label+bar+count rows. Bars
-are built from `▌` characters, one per ticket, capped at the box width. The By Type box
-shows the top 5 types by count. All three boxes exclude CANCELED and ARCHIVED tickets.
+Three side-by-side boxes showing ticket counts broken down by status, attention level, and
+type. Active tickets only — CANCELED and ARCHIVED are excluded.
 
 ### Comet separator
 
-A single animated row between the stats row and the bottom panels. A bright "comet"
-ping-pongs left to right and back with a blended fading tail. Purely cosmetic, no
-interaction.
+An animated decorative bar between the stats row and the panels below.
 
-### SESSIONS (left column, 1/3 width)
+### SESSIONS
 
-- Centred title "SESSIONS"
-- Two count lines: `architect N` / `implementer N` (derived from visible session rows)
-- A `───` divider
-- Up to 5 rows: session name · role abbreviation (`arch` / `impl`) · start time `HH:MM`
-- New sessions highlight amber for approximately 1.5 s on arrival
+Active sessions grouped by role, with individual session names and start times listed below
+the counts. The monitor session itself is not counted.
 
-The monitor session itself uses role `monitor` and is excluded from these counts.
+### TICKET ACTIVITY
 
-### TICKET ACTIVITY (right column, 2/3 width)
+A live feed of ticket state transitions and creations, newest first. Forced transitions are
+marked with ⚠ in the feed.
 
-A feed of ticket state transitions and ticket creations, newest first.
+### TOKEN BURN
 
-```
-TICKET ACTIVITY
-▶ alice-impl · #5 → done         2m
-  bob-arch   · #3 → verified     1h
-  carol-impl⚠· #1 → verified     2h
-```
+Cumulative token usage for the project broken down by total, architect, and implementer.
 
-- Sourced from `ticket_log WHERE kind='transition'` UNION ticket creations from `tickets`,
-  ordered newest first, limit 15.
-- Columns: marker (2 chars) · session name · `· #N →` · state · relative age.
-- `▶` marks the most-recent entry; all others use two spaces.
-- New entries get an amber background highlight for approximately 1.5 s on arrival. Entries
-  appear on the next poll — there is no slide-in animation.
-- **Forced transitions** render differently from normal rows:
-  - The `▶` / `  ` marker is unchanged.
-  - The session name renders in its normal per-session colour.
-  - Immediately after the session name: a `⚠` symbol.
-  - Everything from `·` onward (`· #N → state   age`) renders in amber/warning colour.
-  - Example: `  carol-impl⚠· #1 → verified    2h ago`
+### VELOCITY
 
-### TOKEN BURN (bottom-left, full left-column width)
-
-- Centred title "TOKEN BURN"
-- Three rows: `total`, `arch`, `impl` with right-aligned token counts formatted as
-  `369.5K` or `1.84M`
-- Sourced from `ticket_usage`, excludes CANCELED and ARCHIVED tickets
-
-### VELOCITY (bottom-right, full right-column width)
-
-- Sparkline of ticket completions over the last approximately 2 hours, bucketed
-- Shows `n/a` label when no completion data exists
-- Time axis: `-2h` on the left, `now` on the right
+A sparkline of ticket completions over the last 2 hours. Shows `n/a` when there is no
+completion data.
 
 ### Keyboard shortcuts
 
