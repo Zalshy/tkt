@@ -315,8 +315,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 // Everything is sized to fit m.height — no scrolling.
 func (m RootModel) View() string {
-	if m.width < 50 || m.height < 16 {
-		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 50×16", m.width, m.height)
+	if m.width < 62 || m.height < 23 {
+		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 62×23", m.width, m.height)
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			lipgloss.NewStyle().Foreground(styles.Danger).Render(errMsg))
@@ -369,16 +369,23 @@ func (m RootModel) View() string {
 	// maxEntries: feed content = 1 title line + N entry lines.
 	maxEntries := max(feedContentH-1, 1)
 
+	// Sessions: overhead = title(1) + arch count(1) + impl count(1) + divider(1) = 4.
+	// maxSessions=0 triggers compact mode (counts only, no divider, no rows).
+	const sessOverhead = 4
+	maxSessions := max(sessContentH-sessOverhead, 0)
+
 	sessBox := styles.PanelInactive.
 		Width(sessW - 2).
 		Height(sessContentH).
-		Render(strings.TrimRight(renderSessions(m.sessionsData, sessW-2), "\n"))
+		Render(strings.TrimRight(renderSessions(m.sessionsData, sessW-2, maxSessions), "\n"))
 
+	// Token burn: compact when there's only room for title + total (≤2 content lines).
+	burnCompact := smallContentH <= 2
 	burnContentW := max(1, sessW-2)
 	burnBox := styles.PanelInactive.
 		Width(burnContentW).
 		Height(smallContentH).
-		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, burnContentW), "\n"))
+		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, burnContentW, burnCompact), "\n"))
 
 	feedBox := styles.PanelInactive.
 		Width(feedW - 2).

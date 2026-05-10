@@ -116,20 +116,18 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 	highlightStyle := lipgloss.NewStyle().
 		Background(styles.Warning).
 		Foreground(styles.BgDeep)
-	markerStyle := lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 	restStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.Warning)
 
 	// Column widths — sessionW is computed so every row fills `width` exactly.
-	// Layout: marker(2) + session(sessionW) + " · "(3) + ticket(6) + " → "(3) + state(12) + " "(1) + age(8)
+	// Layout: session(sessionW) + " · "(3) + ticket(6) + " → "(3) + state(12) + " "(1) + age(8)
 	// ageW=8 fits "just now" (8 chars) and "999d ago" (7 chars) without truncation.
 	const stateW = 12
 	const ageW = 8
-	const fixedW = 2 + 3 + 6 + 3 + stateW + 1 + ageW // = 35
+	const fixedW = 3 + 6 + 3 + stateW + 1 + ageW // = 33
 	sessionW := max(width-fixedW, 8)
 
-	for i, e := range entries {
-		isFirst := i == 0
+	for _, e := range entries {
 		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
 
 		session := e.sessionName
@@ -154,31 +152,17 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 		rest := fmt.Sprintf(" · %-6s → %-*s %*s", ticket, stateW, state, ageW, age)
 
 		if isNew {
-			marker := "  "
-			if isFirst {
-				marker = "▶ "
-			}
-			plain := fmt.Sprintf("%s%-*s%s", marker, sessionW, session, rest)
+			plain := fmt.Sprintf("%-*s%s", sessionW, session, rest)
 			sb.WriteString(highlightStyle.Render(plain))
 		} else if e.isForced {
 			// Session name in its normal per-session colour; everything after in warning.
 			// rest starts with " " — replace that leading space with "⚠" so the symbol
 			// sits flush after the session name without changing total row width.
-			if isFirst {
-				sb.WriteString(markerStyle.Render("▶ "))
-			} else {
-				sb.WriteString("  ")
-			}
 			sb.WriteString(lipgloss.NewStyle().
 				Foreground(sessionColor(e.sessionName)).
 				Render(fmt.Sprintf("%-*s", sessionW, session)))
 			sb.WriteString(warnStyle.Render("⚠" + rest[1:]))
 		} else {
-			if isFirst {
-				sb.WriteString(markerStyle.Render("▶ "))
-			} else {
-				sb.WriteString("  ")
-			}
 			sb.WriteString(lipgloss.NewStyle().
 				Foreground(sessionColor(e.sessionName)).
 				Render(fmt.Sprintf("%-*s", sessionW, session)))

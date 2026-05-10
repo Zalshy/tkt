@@ -101,7 +101,6 @@ func renderStatBox(title string, rows []statRow, width int) string {
 
 	var lines []string
 	lines = append(lines, titleStr)
-	lines = append(lines, "") // blank line under title
 
 	for _, r := range rows {
 		if r.label == "" {

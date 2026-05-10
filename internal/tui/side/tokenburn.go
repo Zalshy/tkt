@@ -58,13 +58,22 @@ func fmtTokens(n int64) string {
 }
 
 // renderTokenBurn renders the TOKEN BURN section.
-// Layout:
+//
+// compact=true shows only the title and total line (for constrained heights).
+// compact=false shows the full breakdown: total, arch, impl.
+//
+// Layout — full:
 //
 //	     TOKEN BURN          ← centered title
 //	  total       1.84M
 //	  architect   1.21M
 //	  implementer 0.63M
-func renderTokenBurn(d tokenBurnData, width int) string {
+//
+// Layout — compact:
+//
+//	     TOKEN BURN
+//	  total       1.84M
+func renderTokenBurn(d tokenBurnData, width int, compact bool) string {
 	var sb strings.Builder
 
 	// — Section header — centered —
@@ -76,15 +85,14 @@ func renderTokenBurn(d tokenBurnData, width int) string {
 		Render("TOKEN BURN"))
 	sb.WriteString("\n")
 
-	// renderRow writes "  label <pad> value\n" with the value right-aligned.
+	// renderRow writes "label <pad> value\n" with the value right-aligned.
 	renderRow := func(label, value string, color lipgloss.Color) {
 		labelStr := lipgloss.NewStyle().Foreground(color).Bold(true).Render(label)
 		valStr := lipgloss.NewStyle().Foreground(color).Bold(true).Render(value)
-		pad := width - 2 - lipgloss.Width(labelStr) - lipgloss.Width(valStr)
+		pad := width - lipgloss.Width(labelStr) - lipgloss.Width(valStr)
 		if pad < 1 {
 			pad = 1
 		}
-		sb.WriteString("  ")
 		sb.WriteString(labelStr)
 		sb.WriteString(strings.Repeat(" ", pad))
 		sb.WriteString(valStr)
@@ -92,8 +100,10 @@ func renderTokenBurn(d tokenBurnData, width int) string {
 	}
 
 	renderRow("total", fmtTokens(d.total), styles.Primary)
-	renderRow("arch", fmtTokens(d.arch), lipgloss.Color("#C678DD"))
-	renderRow("impl", fmtTokens(d.impl), lipgloss.Color("#56B6C2"))
+	if !compact {
+		renderRow("arch", fmtTokens(d.arch), lipgloss.Color("#C678DD"))
+		renderRow("impl", fmtTokens(d.impl), lipgloss.Color("#56B6C2"))
+	}
 
 	return sb.String()
 }
