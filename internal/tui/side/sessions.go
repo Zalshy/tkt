@@ -54,15 +54,48 @@ func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 }
 
 // renderSessions renders the SESSIONS section.
-// Layout (top to bottom):
+//
+// maxVisible controls how many session rows are shown:
+//   - 0  → compact mode: title + role counts only (no divider, no rows)
+//   - >0 → full mode: title + counts + divider + up to maxVisible rows
+//
+// Counts always reflect ALL events regardless of maxVisible, so the numbers
+// stay accurate even when rows are hidden or capped.
+//
+// Layout — full mode:
 //
 //	       SESSIONS          ← centered title
-//	  architect   N          ← stacked counts derived from visible events
+//	  architect   N          ← counts from ALL events
 //	  implementer N
 //	  ─────────────────      ← divider
 //	  alice-arch  arch  14:28
 //	  bob         impl  09:55
-func renderSessions(events []sessionEvent, width int) string {
+//
+// Layout — compact mode (maxVisible == 0):
+//
+//	       SESSIONS
+//	  architect   N
+//	  implementer N
+func renderSessions(events []sessionEvent, width, maxVisible int) string {
+	compact := maxVisible <= 0
+
+	// — Counts: always from ALL events, before any display cap —
+	var archC, implC int
+	for _, e := range events {
+		switch e.role {
+		case "architect":
+			archC++
+		case "implementer":
+			implC++
+		}
+	}
+
+	// Cap the display slice for full mode.
+	displayEvents := events
+	if !compact && len(displayEvents) > maxVisible {
+		displayEvents = displayEvents[:maxVisible]
+	}
+
 	var sb strings.Builder
 
 	// — Section header — centered —
@@ -73,17 +106,6 @@ func renderSessions(events []sessionEvent, width int) string {
 		Align(lipgloss.Center).
 		Render("SESSIONS"))
 	sb.WriteString("\n")
-
-	// — Counts: derived from the visible events so numbers always match the list —
-	var archC, implC int
-	for _, e := range events {
-		switch e.role {
-		case "architect":
-			archC++
-		case "implementer":
-			implC++
-		}
-	}
 
 	archBadge := lipgloss.NewStyle().
 		Foreground(lipgloss.Color("#C678DD")).
@@ -103,33 +125,33 @@ func renderSessions(events []sessionEvent, width int) string {
 		Bold(true).
 		Render(fmt.Sprintf("  %d", implC))
 
-	sb.WriteString("  " + archBadge + archCount)
+	sb.WriteString(archBadge + archCount)
 	sb.WriteString("\n")
-	sb.WriteString("  " + implBadge + implCount)
+	sb.WriteString(implBadge + implCount)
 	sb.WriteString("\n")
 
-	// — Divider —
-	divW := width - 2
-	if divW < 1 {
-		divW = 1
+	// Compact mode: counts only — stop here.
+	if compact {
+		return sb.String()
 	}
-	sb.WriteString("  ")
+
+	// — Divider —
+	divW := max(width, 1)
 	sb.WriteString(lipgloss.NewStyle().
 		Foreground(styles.Faint).
 		Render(strings.Repeat("─", divW)))
 	sb.WriteString("\n")
 
 	// — Session rows — dynamic nameW so each row fills the available width —
-	if len(events) == 0 {
-		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Faint).Render("  (none)"))
+	if len(displayEvents) == 0 {
+		sb.WriteString(lipgloss.NewStyle().Foreground(styles.Faint).Render("(none)"))
 		return sb.String()
 	}
 
-	// Layout: indent(2) + name(nameW) + role(5) + time(5) = width
-	const indent = 2
+	// Layout: name(nameW) + role(5) + time(5) = width
 	const roleColW = 5 // "arch " or "impl " (4 + 1 space)
 	const timeColW = 5 // "15:04"
-	nameW := width - indent - roleColW - timeColW
+	nameW := width - roleColW - timeColW
 	if nameW < 8 {
 		nameW = 8
 	}
@@ -138,7 +160,7 @@ func renderSessions(events []sessionEvent, width int) string {
 		Background(styles.Warning).
 		Foreground(styles.BgDeep)
 
-	for _, e := range events {
+	for _, e := range displayEvents {
 		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
 
 		name := e.name
@@ -147,12 +169,11 @@ func renderSessions(events []sessionEvent, width int) string {
 		}
 
 		if isNew {
-			line := fmt.Sprintf("  %-*s %-4s %s",
+			line := fmt.Sprintf("%-*s %-4s %s",
 				nameW, name, roleAbbrev(e.role), e.startedAt.Format("15:04"))
 			sb.WriteString(highlightStyle.Render(line))
 		} else {
 			roleLabel, roleColor := roleStyle(e.role)
-			sb.WriteString("  ")
 			sb.WriteString(lipgloss.NewStyle().
 				Foreground(sessionColor(e.name)).
 				Render(fmt.Sprintf("%-*s", nameW, name)))

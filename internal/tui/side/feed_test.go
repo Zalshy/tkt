@@ -33,8 +33,8 @@ func TestRenderFeedEntries(t *testing.T) {
 	if !strings.Contains(out, "test-session") {
 		t.Errorf("expected 'test-session' in output, got: %q", out)
 	}
-	if !strings.Contains(out, "IN_PROGRESS") {
-		t.Errorf("expected 'IN_PROGRESS' in output, got: %q", out)
+	if !strings.Contains(out, "in_progress") {
+		t.Errorf("expected 'in_progress' in output, got: %q", out)
 	}
 }
 
