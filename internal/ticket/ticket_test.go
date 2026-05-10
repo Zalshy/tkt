@@ -724,6 +724,32 @@ func TestUpdate_BothFields(t *testing.T) {
 	}
 }
 
+func TestSetTier_InvalidTier(t *testing.T) {
+	_, sqlDB := setupDB(t)
+	actor := makeActor()
+
+	tk, err := Create("title", "", "standard", actor, sqlDB, "", 0)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	_, err = SetTier(fmt.Sprintf("%d", tk.ID), "urgent", sqlDB)
+	if err == nil {
+		t.Fatal("expected invalid tier error, got nil")
+	}
+	if !strings.Contains(err.Error(), "invalid tier") {
+		t.Errorf("unexpected error: %v", err)
+	}
+
+	got, err := GetByID(fmt.Sprintf("%d", tk.ID), sqlDB)
+	if err != nil {
+		t.Fatalf("GetByID: %v", err)
+	}
+	if got.Tier != "standard" {
+		t.Errorf("Tier = %q, want standard", got.Tier)
+	}
+}
+
 func TestUpdate_NothingToUpdate(t *testing.T) {
 	_, sqlDB := setupDB(t)
 	actor := makeActor()

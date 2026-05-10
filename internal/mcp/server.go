@@ -10,7 +10,7 @@ import (
 // NewServer creates the MCP server and registers all tools.
 // sess may be nil when --readonly is set (no write tools registered).
 func NewServer(root string, db *sql.DB, sess *models.Session) *server.MCPServer {
-	s := server.NewMCPServer("tkt", "0.2.1",
+	s := server.NewMCPServer("tkt", "0.2.2",
 		server.WithToolCapabilities(false),
 	)
 

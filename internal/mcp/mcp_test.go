@@ -554,6 +554,31 @@ func TestSubmitPlan_InvalidID(t *testing.T) {
 	assertError(t, res, "submit plan invalid id")
 }
 
+func TestSubmitPlan_RejectsNonPlanningStatuses(t *testing.T) {
+	statuses := []models.Status{
+		models.StatusInProgress,
+		models.StatusDone,
+		models.StatusVerified,
+		models.StatusCanceled,
+		models.StatusArchived,
+	}
+
+	for _, status := range statuses {
+		t.Run(string(status), func(t *testing.T) {
+			root, s := setup(t)
+			id := seedTicket(t, root, "Frozen plan", status)
+
+			res := callTool(t, s, "tkt_submit_plan", map[string]any{
+				"id":   id,
+				"body": "late plan",
+			})
+
+			assertError(t, res, "submit plan rejects non-PLANNING")
+			assertContains(t, res, "cannot edit plan", "frozen plan error")
+		})
+	}
+}
+
 func TestAddDepends_Happy(t *testing.T) {
 	root, s := setup(t)
 	id1 := seedTicket(t, root, "Main ticket", models.StatusTodo)
@@ -620,6 +645,19 @@ func TestSetTier_InvalidID(t *testing.T) {
 		"tier": "low",
 	})
 	assertError(t, res, "set tier invalid id")
+}
+
+func TestSetTier_InvalidTier(t *testing.T) {
+	root, s := setup(t)
+	id := seedTicket(t, root, "Tierable", models.StatusTodo)
+
+	res := callTool(t, s, "tkt_set_tier", map[string]any{
+		"id":   id,
+		"tier": "urgent",
+	})
+
+	assertError(t, res, "set tier invalid tier")
+	assertContains(t, res, "invalid tier", "invalid tier error")
 }
 
 func TestArchiveTicket_MissingID(t *testing.T) {

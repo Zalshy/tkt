@@ -21,7 +21,7 @@ type ListOptions struct {
 	Limit           int            // 0 = use default (10)
 	All             bool           // true = no LIMIT clause; also disables soft-delete filter
 	IncludeVerified bool
-	IncludeArchived bool           // true = include ARCHIVED tickets in results
+	IncludeArchived bool // true = include ARCHIVED tickets in results
 	ExcludeCanceled bool
 	Sort            string // "updated" (default) or "id"
 	Ready           bool   // true = only tickets with no unresolved dependencies
@@ -488,6 +488,10 @@ func RemoveDependency(ticketID, depID int64, db *sql.DB) error {
 // SetTier updates the tier of an existing ticket. Returns ErrNotFound if the
 // ticket does not exist or has been soft-deleted.
 func SetTier(id string, newTier string, db *sql.DB) (*models.Ticket, error) {
+	if newTier != "critical" && newTier != "standard" && newTier != "low" {
+		return nil, fmt.Errorf("ticket.SetTier: invalid tier %q: must be critical, standard, or low", newTier)
+	}
+
 	t, err := GetByID(id, db)
 	if err != nil {
 		return nil, err
