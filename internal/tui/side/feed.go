@@ -16,6 +16,7 @@ type feedEntry struct {
 	sessionName string
 	toState     string
 	isCreate    bool      // true for ticket-created events sourced from tickets table
+	isForced    bool      // true when the transition was a forced op
 	createdAt   time.Time
 	arrivedAt   time.Time // set when first detected as new on a poll cycle; zero for pre-existing
 }
@@ -28,13 +29,13 @@ func loadFeed(db *sql.DB) ([]feedEntry, error) {
 	}
 
 	rows, err := db.Query(`
-		SELECT ticket_id, session_name, to_state, 0 AS is_create, created_at
+		SELECT ticket_id, session_name, to_state, 0 AS is_create, forced, created_at
 		FROM ticket_log
 		WHERE kind = 'transition' AND deleted_at IS NULL
 
 		UNION ALL
 
-		SELECT id, created_by, 'TODO', 1 AS is_create, created_at
+		SELECT id, created_by, 'TODO', 1 AS is_create, 0 AS forced, created_at
 		FROM tickets
 		WHERE deleted_at IS NULL
 
@@ -50,14 +51,15 @@ func loadFeed(db *sql.DB) ([]feedEntry, error) {
 	for rows.Next() {
 		var e feedEntry
 		var toState sql.NullString
-		var isCreate int
-		if err := rows.Scan(&e.ticketID, &e.sessionName, &toState, &isCreate, &e.createdAt); err != nil {
+		var isCreate, forcedVal int
+		if err := rows.Scan(&e.ticketID, &e.sessionName, &toState, &isCreate, &forcedVal, &e.createdAt); err != nil {
 			return nil, fmt.Errorf("feed.loadFeed: scan: %w", err)
 		}
 		if toState.Valid {
 			e.toState = toState.String
 		}
 		e.isCreate = isCreate != 0
+		e.isForced = forcedVal != 0
 		entries = append(entries, e)
 	}
 	if err := rows.Err(); err != nil {
@@ -72,10 +74,7 @@ func loadFeed(db *sql.DB) ([]feedEntry, error) {
 //   - < 86400s → "Xh ago"
 //   - else     → "Xd ago"
 func relAge(t time.Time) string {
-	d := time.Since(t)
-	if d < 0 {
-		d = 0
-	}
+	d := max(time.Since(t), 0)
 	secs := int(d.Seconds())
 	switch {
 	case secs < 60:
@@ -119,6 +118,7 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 		Foreground(styles.BgDeep)
 	markerStyle := lipgloss.NewStyle().Foreground(styles.Primary).Bold(true)
 	restStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
+	warnStyle := lipgloss.NewStyle().Foreground(styles.Warning)
 
 	// Column widths — sessionW is computed so every row fills `width` exactly.
 	// Layout: marker(2) + session(sessionW) + " · "(3) + ticket(6) + " → "(3) + state(12) + " "(1) + age(8)
@@ -126,10 +126,7 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 	const stateW = 12
 	const ageW = 8
 	const fixedW = 2 + 3 + 6 + 3 + stateW + 1 + ageW // = 35
-	sessionW := width - fixedW
-	if sessionW < 8 {
-		sessionW = 8
-	}
+	sessionW := max(width-fixedW, 8)
 
 	for i, e := range entries {
 		isFirst := i == 0
@@ -163,6 +160,19 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 			}
 			plain := fmt.Sprintf("%s%-*s%s", marker, sessionW, session, rest)
 			sb.WriteString(highlightStyle.Render(plain))
+		} else if e.isForced {
+			// Session name in its normal per-session colour; everything after in warning.
+			// rest starts with " " — replace that leading space with "⚠" so the symbol
+			// sits flush after the session name without changing total row width.
+			if isFirst {
+				sb.WriteString(markerStyle.Render("▶ "))
+			} else {
+				sb.WriteString("  ")
+			}
+			sb.WriteString(lipgloss.NewStyle().
+				Foreground(sessionColor(e.sessionName)).
+				Render(fmt.Sprintf("%-*s", sessionW, session)))
+			sb.WriteString(warnStyle.Render("⚠" + rest[1:]))
 		} else {
 			if isFirst {
 				sb.WriteString(markerStyle.Render("▶ "))

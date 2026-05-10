@@ -69,110 +69,110 @@ CANCELED and ARCHIVED tickets are not shown.
 ## Side mode
 
 A companion panel with no board. Designed to run alongside `tkt monitor minimal` in a split
-terminal pane, but works standalone too. Shows live stats, a change feed, and session activity.
+terminal pane, but works standalone too. Shows live stats, a session list, a ticket activity
+feed, token burn totals, and a velocity sparkline.
 
 **Layout:**
 
 ```
-┌─────────────────────────────────────────────────────┐
-│  tkt side                               14:32:07   │
-├─────────────────────────────────────────────────────┤
-│  STATS                                              │
-│                                                     │
-│  by status                                          │
-│  TODO        ████████░░░░░░░░  12                   │
-│  PLANNING    ████░░░░░░░░░░░░   4                   │
-│  IN PROGRESS ██░░░░░░░░░░░░░░   2                   │
-│  DONE        ████████░░░░░░░░   8                   │
-│  VERIFIED    ███░░░░░░░░░░░░░   4                   │
-│                                                     │
-│  by attention level    │  by main_type              │
-│  critical   3          │  feature   12              │
-│  high       8          │  bug        4              │
-│  normal    15          │  chore      2              │
-│  low        4          │  docs       2              │
-├─────────────────────────────────────────────────────┤
-│  TICKET CHANGES                                     │
-│ ▶ alice-impl   · #T005 → IN_PROGRESS      2s       │
-│   bob-arch     · #T008 → DONE             3m       │
-│   alice-arch   · #T003 → PLANNING         1h       │
-│   bob-impl     · #T001 → VERIFIED        14h       │
-├─────────────────────────────────────────────────────┤
-│  SESSIONS                                           │
-│  alice-arch    started   14:28                      │
-│  bob-impl      started   14:15                      │
-│                                                     │
-│  🧠 arch: 1   ⚙️  impl: 2                           │
-└─────────────────────────────────────────────────────┘
+┌─────────────────────────────────────────────────┐
+│  tkt monitoring                          17:12  │  ← full-width purple pill + cyan clock badge
+├──────────────┬──────────────────┬───────────────┤
+│  By Status   │  By Attention    │  By Type      │  ← 3 equal stat boxes
+│  todo    ▌ 2 │  critical ▌▌  2  │  bug   ▌▌  2  │
+│  planning▌ 1 │  high    ▌    1  │  feature▌▌ 2  │
+│  in_prog…▌ 1 │  medium  ▌    1  │  chore  ▌  1  │
+│  done    ▌ 1 │  low     ▌    1  │  docs   ▌  1  │
+│  verified▌ 1 │  unset      0    │               │
+├──────────────┴──────────────────┴───────────────┤
+│  ░░░░░░░░░░▓▓▓░░░░░░░░░░░░░░░░░░░░░░░░          │  ← comet separator (animated)
+├─────────────────┬───────────────────────────────┤
+│  SESSIONS       │  TICKET ACTIVITY              │  ← left 1/3 / right 2/3
+│  architect   3  │ ▶ alice-impl · #5 → done  2m  │
+│  implementer 1  │   bob-arch  · #3 → verified 1h│
+│  ───────────    │   carol-impl⚠· #1 → verified 2h│
+│  alice-arch arch 11:10  │   ...                 │
+│  bob        impl 09:55  │                       │
+├─────────────────┼───────────────────────────────┤
+│  TOKEN BURN     │  VELOCITY                 n/a │
+│  total  369.5K  │  ─────────────────────────    │
+│  arch   283.2K  │  -2h                     now  │
+│  impl    86.3K  │                               │
+├─────────────────┴───────────────────────────────┤
+│  q quit                                         │
+└─────────────────────────────────────────────────┘
 ```
 
 ### Header
 
-Wordmark + live clock (`HH:MM:SS`) pinned to the top right. Clock updates every second
-independently of the 5-second poll cycle.
+A full-width purple pill containing the wordmark "tkt monitoring". A cyan clock badge is
+pinned to the right edge showing `HH:MM`. The clock updates at the next minute boundary,
+not every second.
 
-### Stats
+### Stats row
 
-Three breakdowns, all excluding CANCELED and ARCHIVED tickets.
+Three equal-width boxes displayed side by side: **By Status**, **By Attention**, and
+**By Type**. Each box has a centred title, a blank line, then label+bar+count rows. Bars
+are built from `▌` characters, one per ticket, capped at the box width. The By Type box
+shows the top 5 types by count. All three boxes exclude CANCELED and ARCHIVED tickets.
 
-- **By status** — ticket counts across TODO, PLANNING, IN_PROGRESS, DONE, VERIFIED.
-  Rendered as graphical bars using lipgloss. Exact visual form (bars, distribution, labels)
-  determined at implementation time based on lipgloss capabilities.
-- **By attention level** — ticket counts grouped by attention level field.
-- **By main_type** — ticket counts grouped by main_type field.
+### Comet separator
 
-The attention level and main_type breakdowns share a two-column row to preserve vertical space.
+A single animated row between the stats row and the bottom panels. A bright "comet"
+ping-pongs left to right and back with a blended fading tail. Purely cosmetic, no
+interaction.
 
-### Ticket changes feed
+### SESSIONS (left column, 1/3 width)
 
-An htop-style scrollable table showing ticket state transitions, newest first.
-
-```
-TICKET CHANGES
-▶ alice-impl   · #T005 → IN_PROGRESS      2s
-  bob-arch     · #T008 → DONE             3m
-  alice-arch   · #T003 → PLANNING         1h
-  bob-impl     · #T001 → VERIFIED        14h
-```
-
-- Sourced from `ticket_log WHERE kind = 'transition'`, ordered `created_at DESC`.
-- Columns: session name · ticket ID + new status · relative age (s → m → h → d).
-- **New entry animation:** when a fresh transition is detected on poll, the new row slides
-  in on arrival. Existing rows shift down.
-- **New entry highlight:** fresh rows render with a vivid background color (primary or
-  secondary from the color palette) that fades back to the default background over a short
-  duration (~1–2s). Draws the eye immediately without requiring the user to watch the feed.
-- The newest entry is marked with `▶`.
-- Feed is scrollable with `j` / `k`.
-- `enter` on a row opens the ticket detail modal.
-
-### Sessions
-
-A smaller section below the change feed. Same notification concept — new rows animate in
-on arrival. Shows session start and end events with wall-clock timestamps.
-
-```
-SESSIONS
-alice-arch    started   14:28
-bob-impl      started   14:15
-```
-
-Followed by the live session count summary:
-
-```
-🧠 arch: 1   ⚙️  impl: 2
-```
+- Centred title "SESSIONS"
+- Two count lines: `architect N` / `implementer N` (derived from visible session rows)
+- A `───` divider
+- Up to 5 rows: session name · role abbreviation (`arch` / `impl`) · start time `HH:MM`
+- New sessions highlight amber for approximately 1.5 s on arrival
 
 The monitor session itself uses role `monitor` and is excluded from these counts.
+
+### TICKET ACTIVITY (right column, 2/3 width)
+
+A feed of ticket state transitions and ticket creations, newest first.
+
+```
+TICKET ACTIVITY
+▶ alice-impl · #5 → done         2m
+  bob-arch   · #3 → verified     1h
+  carol-impl⚠· #1 → verified     2h
+```
+
+- Sourced from `ticket_log WHERE kind='transition'` UNION ticket creations from `tickets`,
+  ordered newest first, limit 15.
+- Columns: marker (2 chars) · session name · `· #N →` · state · relative age.
+- `▶` marks the most-recent entry; all others use two spaces.
+- New entries get an amber background highlight for approximately 1.5 s on arrival. Entries
+  appear on the next poll — there is no slide-in animation.
+- **Forced transitions** render differently from normal rows:
+  - The `▶` / `  ` marker is unchanged.
+  - The session name renders in its normal per-session colour.
+  - Immediately after the session name: a `⚠` symbol.
+  - Everything from `·` onward (`· #N → state   age`) renders in amber/warning colour.
+  - Example: `  carol-impl⚠· #1 → verified    2h ago`
+
+### TOKEN BURN (bottom-left, full left-column width)
+
+- Centred title "TOKEN BURN"
+- Three rows: `total`, `arch`, `impl` with right-aligned token counts formatted as
+  `369.5K` or `1.84M`
+- Sourced from `ticket_usage`, excludes CANCELED and ARCHIVED tickets
+
+### VELOCITY (bottom-right, full right-column width)
+
+- Sparkline of ticket completions over the last approximately 2 hours, bucketed
+- Shows `n/a` label when no completion data exists
+- Time axis: `-2h` on the left, `now` on the right
 
 ### Keyboard shortcuts
 
 | Key | Action |
 |-----|--------|
-| `↑` `↓` / `j` `k` | Scroll active section |
-| `tab` | Cycle focus: stats → ticket changes → sessions |
-| `enter` | Open ticket detail (when ticket changes is focused) |
-| `?` | Toggle help |
 | `q` / `Ctrl+C` | Quit |
 
 ---
@@ -272,13 +272,33 @@ because it requires a live DB mutation while the monitor is running. Two approac
 2. **Manual review** — animations are verified by hand during development; the tape
    covers layout only.
 
+### Visual test script
+
+`scripts/visual-test.sh` is a local dev script (gitignored) that builds the binary and
+records the GIF at three terminal sizes, then extracts frame 125 from each GIF as a PNG
+for layout review:
+
+```bash
+bash scripts/visual-test.sh
+# outputs:
+#   /tmp/monitor-small.png   (~101×28 chars)
+#   /tmp/monitor-medium.png  (~140×35 chars)
+#   /tmp/monitor-large.png   (~180×45 chars)
+```
+
+| Size   | Pixels    | Approx cols×rows |
+|--------|-----------|------------------|
+| small  | 1010×560  | ~101×28          |
+| medium | 1400×700  | ~140×35          |
+| large  | 1800×900  | ~180×45          |
+
 ---
 
 ## Notes
 
 - Both modes are read-only. Ticket mutations require other `tkt` commands.
 - Both modes use the same 5-second poll interval and epoch-guarded async refresh.
-- The clock in side mode updates every second on its own tick — independent of the poll.
+- The clock in side mode shows `HH:MM` and updates at the next minute boundary — independent of the poll.
 - Session counts (`arch`/`impl`) live exclusively in side mode. Minimal mode has no session info.
 - `tkt --dir /path/to/project monitor side` works as expected.
 - The two modes are designed to be run together in a split terminal pane, but each works

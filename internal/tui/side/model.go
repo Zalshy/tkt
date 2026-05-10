@@ -61,13 +61,6 @@ type sparklineLoadedMsg struct {
 	epoch int
 }
 
-// forcedOpsLoadedMsg carries freshly-loaded forced ops entries and the epoch
-// it was requested at. Stale loads (epoch mismatch) are discarded.
-type forcedOpsLoadedMsg struct {
-	entries []forcedOpsEntry
-	epoch   int
-}
-
 // RootModel is the top-level BubbleTea model for the side monitor mode.
 type RootModel struct {
 	db           *sql.DB
@@ -89,8 +82,6 @@ type RootModel struct {
 	burnEpoch      int
 	sparkline      sparklineData
 	sparklineEpoch int
-	forcedOps      []forcedOpsEntry
-	forcedOpsEpoch int
 	// Comet animation state — ping-pong left↔right.
 	cometPos      float64 // 0..1 position of the head along the bar
 	cometDir      int     // +1 = left→right, -1 = right→left (true direction)
@@ -178,18 +169,6 @@ func loadSparklineCmd(db *sql.DB, epoch int) tea.Cmd {
 	}
 }
 
-// loadForcedOpsCmd returns a tea.Cmd that loads forced ops entries in the
-// background and sends a forcedOpsLoadedMsg tagged with the given epoch.
-func loadForcedOpsCmd(db *sql.DB, epoch int) tea.Cmd {
-	return func() tea.Msg {
-		entries, err := loadForcedOps(db)
-		if err != nil {
-			return forcedOpsLoadedMsg{epoch: epoch}
-		}
-		return forcedOpsLoadedMsg{entries: entries, epoch: epoch}
-	}
-}
-
 // Init satisfies tea.Model. Starts the poll tick, clock tick, and initial data loads.
 // Note: Init uses a value receiver — mutations inside Init are discarded.
 func (m RootModel) Init() tea.Cmd {
@@ -202,7 +181,6 @@ func (m RootModel) Init() tea.Cmd {
 		loadSessionsCmd(m.db, m.sessEpoch),
 		loadTokenBurnCmd(m.db, m.burnEpoch),
 		loadSparklineCmd(m.db, m.sparklineEpoch),
-		loadForcedOpsCmd(m.db, m.forcedOpsEpoch),
 	)
 }
 
@@ -230,14 +208,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessEpoch++
 		m.burnEpoch++
 		m.sparklineEpoch++
-		m.forcedOpsEpoch++
 		cmds = append(cmds, pollCmd(m.pollInterval))
 		cmds = append(cmds, loadStatsCmd(m.db, m.statsEpoch))
 		cmds = append(cmds, loadFeedCmd(m.db, m.feedEpoch))
 		cmds = append(cmds, loadSessionsCmd(m.db, m.sessEpoch))
 		cmds = append(cmds, loadTokenBurnCmd(m.db, m.burnEpoch))
 		cmds = append(cmds, loadSparklineCmd(m.db, m.sparklineEpoch))
-		cmds = append(cmds, loadForcedOpsCmd(m.db, m.forcedOpsEpoch))
 		return m, tea.Batch(cmds...)
 
 	case statsLoadedMsg:
@@ -297,12 +273,6 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case sparklineLoadedMsg:
 		if msg.epoch == m.sparklineEpoch {
 			m.sparkline = msg.data
-		}
-		return m, tea.Batch(cmds...)
-
-	case forcedOpsLoadedMsg:
-		if msg.epoch == m.forcedOpsEpoch {
-			m.forcedOps = msg.entries
 		}
 		return m, tea.Batch(cmds...)
 
@@ -372,10 +342,7 @@ func (m RootModel) View() string {
 	cometBox := strings.TrimRight(renderCometBar(m.cometPos, m.cometDirBlend, m.width), "\n")
 
 	// — Bottom area —
-	bottomH := m.height - headerH - statsH - cometBoxH - footerH
-	if bottomH < 2 {
-		bottomH = 2
-	}
+	bottomH := max(m.height-headerH-statsH-cometBoxH-footerH, 2)
 
 	// Left column: 1/3 width. Feed: 2/3 width.
 	sessW := m.width / 3
@@ -388,63 +355,30 @@ func (m RootModel) View() string {
 	// Decide how much space the small boxes (burn / sparkline) get.
 	// They need at least 3 rows each (1 content + 2 border).
 	const minSmallH = 3
-	smallH := smallBoxH // preferred 6
-	if smallH > bottomH-minSmallH {
-		smallH = bottomH - minSmallH // squeeze them down
-		if smallH < minSmallH {
-			smallH = minSmallH
-		}
-	}
-	smallContentH := smallH - 2
-	if smallContentH < 1 {
-		smallContentH = 1
-	}
+	smallH := min(smallBoxH, max(bottomH-minSmallH, minSmallH))
+	smallContentH := max(smallH-2, 1)
 
 	// Left column: sessions fills the space above token burn.
-	sessRenderedH := bottomH - smallH
-	if sessRenderedH < minSmallH {
-		sessRenderedH = minSmallH
-	}
-	sessContentH := sessRenderedH - 2
-	if sessContentH < 1 {
-		sessContentH = 1
-	}
+	sessRenderedH := max(bottomH-smallH, minSmallH)
+	sessContentH := max(sessRenderedH-2, 1)
 
 	// Right column: feed fills the space above velocity sparkline.
-	feedRenderedH := bottomH - smallH
-	if feedRenderedH < minSmallH {
-		feedRenderedH = minSmallH
-	}
-	feedContentH := feedRenderedH - 2
-	if feedContentH < 1 {
-		feedContentH = 1
-	}
+	feedRenderedH := max(bottomH-smallH, minSmallH)
+	feedContentH := max(feedRenderedH-2, 1)
 
 	// maxEntries: feed content = 1 title line + N entry lines.
-	maxEntries := feedContentH - 1
-	if maxEntries < 1 {
-		maxEntries = 1
-	}
+	maxEntries := max(feedContentH-1, 1)
 
 	sessBox := styles.PanelInactive.
 		Width(sessW - 2).
 		Height(sessContentH).
 		Render(strings.TrimRight(renderSessions(m.sessionsData, sessW-2), "\n"))
 
-	// Split left column bottom row: TOKEN BURN (left half) + FORCED OPS (right half).
-	halfW := sessW / 2
-	burnContentW := max(1, halfW-2)
-	forcedOpsContentW := max(1, sessW-halfW-2)
-
+	burnContentW := max(1, sessW-2)
 	burnBox := styles.PanelInactive.
 		Width(burnContentW).
 		Height(smallContentH).
 		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, burnContentW), "\n"))
-
-	forcedOpsBox := styles.PanelInactive.
-		Width(forcedOpsContentW).
-		Height(smallContentH).
-		Render(strings.TrimRight(renderForcedOps(m.forcedOps, forcedOpsContentW), "\n"))
 
 	feedBox := styles.PanelInactive.
 		Width(feedW - 2).
@@ -456,7 +390,7 @@ func (m RootModel) View() string {
 		Height(smallContentH).
 		Render(strings.TrimRight(renderSparkline(m.sparkline, feedW-2), "\n"))
 
-	smallRow := lipgloss.JoinHorizontal(lipgloss.Top, burnBox, forcedOpsBox)
+	smallRow := burnBox
 	leftCol := lipgloss.JoinVertical(lipgloss.Left, sessBox, smallRow)
 	rightCol := lipgloss.JoinVertical(lipgloss.Left, feedBox, sparklineBox)
 	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
