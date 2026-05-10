@@ -244,7 +244,7 @@ func renderStatsRow(s statsData, totalWidth int) string {
 
 	box1 := renderStatBox("By Status", statusRows, boxW)
 	box2 := renderStatBox("By Attention", attnRows, boxW)
-	box3 := renderStatBox("By Type", typeRows, boxW)
+	box3 := renderStatBox("By Type", typeRows, totalWidth-2*boxW)
 
 	return lipgloss.JoinHorizontal(lipgloss.Top, box1, box2, box3)
 }

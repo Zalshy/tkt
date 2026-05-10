@@ -367,12 +367,9 @@ func (m RootModel) View() string {
 	statsRow := renderStatsRow(m.stats, m.width)
 	statsH := lipgloss.Height(statsRow)
 
-	// — Comet box (1 content row + 2 border rows = 3 rows total) —
-	const cometBoxH = 3
-	cometBox := styles.PanelInactive.
-		Width(m.width - 2).
-		Height(1).
-		Render(strings.TrimRight(renderCometBar(m.cometPos, m.cometDirBlend, m.width-2), "\n"))
+	// — Comet bar — borderless, full width, single row —
+	const cometBoxH = 1
+	cometBox := strings.TrimRight(renderCometBar(m.cometPos, m.cometDirBlend, m.width), "\n")
 
 	// — Bottom area —
 	bottomH := m.height - headerH - statsH - cometBoxH - footerH

@@ -92,8 +92,8 @@ func renderTokenBurn(d tokenBurnData, width int) string {
 	}
 
 	renderRow("total", fmtTokens(d.total), styles.Primary)
-	renderRow("architect", fmtTokens(d.arch), lipgloss.Color("#C678DD"))
-	renderRow("implementer", fmtTokens(d.impl), lipgloss.Color("#56B6C2"))
+	renderRow("arch", fmtTokens(d.arch), lipgloss.Color("#C678DD"))
+	renderRow("impl", fmtTokens(d.impl), lipgloss.Color("#56B6C2"))
 
 	return sb.String()
 }
