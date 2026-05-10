@@ -33,7 +33,7 @@ var (
 
 // Attention level gradient colors (5 bands, low→high).
 var (
-	AttentionA = lipgloss.Color("#264653") // 1–20   dark teal
+	AttentionA = lipgloss.Color("#4ECDC4") // 1–20   teal
 	AttentionB = lipgloss.Color("#2a9d8f") // 21–40  teal
 	AttentionC = lipgloss.Color("#e9c46a") // 41–60  gold
 	AttentionD = lipgloss.Color("#f4a261") // 61–80  orange

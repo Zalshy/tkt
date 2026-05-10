@@ -13,6 +13,7 @@ agents/
 *.png
 !assets/*.png
 !assets/*.gif
+assets/monitor-side.gif
 demo.tape
 demo.png/
 monitor.tape
@@ -20,3 +21,4 @@ monitor.tape
 .screenshots/
 AGENTS.md
 .codex
+scripts/visual-test.sh

@@ -11,12 +11,13 @@ import (
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/session"
 	"github.com/zalshy/tkt/internal/tui"
+	"github.com/zalshy/tkt/internal/tui/side"
 )
 
 var monitorCmd = &cobra.Command{
 	Use:   "monitor",
 	Short: "Launch the read-only TUI dashboard",
-	Args:  cobra.NoArgs,
+	Args:  cobra.MaximumNArgs(1),
 	RunE:  runMonitor,
 }
 
@@ -51,7 +52,21 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 		}
 	}()
 
-	model := tui.NewRootModel(database, cfg, root)
+	mode := ""
+	if len(args) > 0 {
+		mode = args[0]
+	}
+
+	var model tea.Model
+	switch mode {
+	case "", "minimal":
+		model = tui.NewRootModel(database, cfg, root)
+	case "side":
+		model = side.NewRootModel(database, cfg, root)
+	default:
+		return fmt.Errorf("monitor: unknown mode %q — accepted: minimal, side", mode)
+	}
+
 	p := tea.NewProgram(model, tea.WithAltScreen(), tea.WithMouseCellMotion())
 	if _, err := p.Run(); err != nil {
 		return fmt.Errorf("monitor: tui: %w", err)

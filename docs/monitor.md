@@ -2,26 +2,23 @@
 
 Live terminal UI for watching ticket activity in real time.
 
-## Usage
-
 ```
-tkt monitor
+tkt monitor        # minimal mode (default)
+tkt monitor side   # side panel
 ```
 
-## Flags
+For full details run `tkt docs monitor`.
 
-No flags beyond the global `--dir`.
+---
 
-## Notes / Behaviour
+## Minimal mode (default)
 
-- Opens a full-screen TUI that refreshes automatically as tickets change.
-- Displays tickets across all active states with status, tier, and recent activity.
-- Press `q` or `Ctrl-C` to exit.
-- Intended for passive observation; ticket mutations must be performed via other commands.
+A read-only 3-column kanban (TODO / PLANNING / DONE) that auto-refreshes every 5 seconds.
+Navigate columns and cards with the arrow keys, open a ticket with `enter`, search with `/`.
 
-## Examples
+## Side mode
 
-```bash
-tkt monitor
-tkt --dir /path/to/project monitor
-```
+A companion stats panel designed to run alongside minimal in a split pane, but works
+standalone too. Shows live ticket stats, active sessions, a ticket activity feed, token
+burn totals, and a velocity sparkline. Forced transitions are marked with ⚠ in the feed.
+Quit with `q`.

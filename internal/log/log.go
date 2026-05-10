@@ -23,7 +23,7 @@ type Execer interface {
 //   - body must be non-empty
 //   - if kind == "transition": both fromState and toState must be non-nil
 //   - if kind != "transition": both must be nil
-func Append(ctx context.Context, ticketID int64, kind, body string, fromState, toState *string, actor *models.Session, db Execer) error {
+func Append(ctx context.Context, ticketID int64, kind, body string, fromState, toState *string, actor *models.Session, forced bool, db Execer) error {
 	switch kind {
 	case "transition", "plan", "message":
 		// valid
@@ -45,15 +45,26 @@ func Append(ctx context.Context, ticketID int64, kind, body string, fromState, t
 		}
 	}
 
-	const q = `INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state)
-VALUES (?, ?, ?, ?, ?, ?)`
+	if forced && kind != "transition" {
+		return fmt.Errorf("log.Append: forced may only be true for kind 'transition'")
+	}
+
+	const q = `INSERT INTO ticket_log (ticket_id, session_name, kind, body, from_state, to_state, forced)
+VALUES (?, ?, ?, ?, ?, ?, ?)`
 
 	if _, err := db.ExecContext(ctx, q,
-		ticketID, actor.Name, kind, body, fromState, toState,
+		ticketID, actor.Name, kind, body, fromState, toState, boolToInt(forced),
 	); err != nil {
 		return fmt.Errorf("log.Append: insert: %w", err)
 	}
 	return nil
+}
+
+func boolToInt(b bool) int {
+	if b {
+		return 1
+	}
+	return 0
 }
 
 // GetAll returns all non-deleted log entries for ticketID in ascending chronological order.

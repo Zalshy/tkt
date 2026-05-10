@@ -73,7 +73,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	// Non-empty planBody means a flag was supplied — save and return.
 	// ("", nil) means no flag set; fall through to $EDITOR path below.
 	if planBody != "" {
-		if err := log.Append(context.Background(), t.ID, "plan", planBody, nil, nil, sess, database); err != nil {
+		if err := log.Append(context.Background(), t.ID, "plan", planBody, nil, nil, sess, false, database); err != nil {
 			return fmt.Errorf("plan: save: %w", err)
 		}
 		fmt.Fprintf(cmd.OutOrStdout(), "Plan updated for #%d\n", t.ID)
@@ -127,7 +127,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	if err := log.Append(context.Background(), t.ID, "plan", string(newContent), nil, nil, sess, database); err != nil {
+	if err := log.Append(context.Background(), t.ID, "plan", string(newContent), nil, nil, sess, false, database); err != nil {
 		return fmt.Errorf("plan: save: %w", err)
 	}
 

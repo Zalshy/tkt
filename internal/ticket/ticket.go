@@ -146,8 +146,14 @@ func List(opts ListOptions, db *sql.DB) (ListResult, error) {
 			where = append(where, "t.title LIKE ?")
 			args = append(args, q)
 		} else {
-			where = append(where, "(t.title LIKE ? OR t.description LIKE ?)")
-			args = append(args, q, q)
+			where = append(where, `(t.title LIKE ? OR t.description LIKE ? OR EXISTS (
+				SELECT 1 FROM ticket_log l
+				WHERE l.ticket_id = t.id
+				  AND l.kind IN ('plan', 'message')
+				  AND l.deleted_at IS NULL
+				  AND l.body LIKE ?
+			))`)
+			args = append(args, q, q, q)
 		}
 	}
 

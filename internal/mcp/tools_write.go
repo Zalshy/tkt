@@ -180,7 +180,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 					errs = append(errs, fmt.Sprintf("#%s: %v", p, err))
 					continue
 				}
-				if err := ilog.Append(ctx, t.ID, "message", body, nil, nil, sess, db); err != nil {
+				if err := ilog.Append(ctx, t.ID, "message", body, nil, nil, sess, false, db); err != nil {
 					errs = append(errs, fmt.Sprintf("#%d: %v", t.ID, err))
 					continue
 				}
@@ -226,7 +226,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError(fmt.Sprintf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)), nil
 			}
 
-			if err := ilog.Append(ctx, t.ID, "plan", body, nil, nil, sess, db); err != nil {
+			if err := ilog.Append(ctx, t.ID, "plan", body, nil, nil, sess, false, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 

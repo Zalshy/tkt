@@ -48,7 +48,7 @@ func TestAppend_Roundtrip(t *testing.T) {
 	database := mustOpenDB(t)
 	actor := mustSeedDB(t, database)
 
-	err := ilog.Append(context.Background(), 1, "message", "hello", nil, nil, actor, database)
+	err := ilog.Append(context.Background(), 1, "message", "hello", nil, nil, actor, false, database)
 	if err != nil {
 		t.Fatalf("Append returned unexpected error: %v", err)
 	}
@@ -79,7 +79,7 @@ func TestAppend_EmptyBody(t *testing.T) {
 	database := mustOpenDB(t)
 	actor := mustSeedDB(t, database)
 
-	err := ilog.Append(context.Background(), 1, "message", "", nil, nil, actor, database)
+	err := ilog.Append(context.Background(), 1, "message", "", nil, nil, actor, false, database)
 	if err == nil {
 		t.Fatal("expected error for empty body, got nil")
 	}
@@ -98,27 +98,27 @@ func TestAppend_TransitionValidation(t *testing.T) {
 	actor := mustSeedDB(t, database)
 
 	// transition with both nil — error
-	err := ilog.Append(context.Background(), 1, "transition", "note", nil, nil, actor, database)
+	err := ilog.Append(context.Background(), 1, "transition", "note", nil, nil, actor, false, database)
 	if err == nil {
 		t.Error("expected error for transition with fromState=nil, toState=nil")
 	}
 
 	// transition with only fromState — error
 	from := "TODO"
-	err = ilog.Append(context.Background(), 1, "transition", "note", &from, nil, actor, database)
+	err = ilog.Append(context.Background(), 1, "transition", "note", &from, nil, actor, false, database)
 	if err == nil {
 		t.Error("expected error for transition with toState=nil")
 	}
 
 	// message with fromState set — error
-	err = ilog.Append(context.Background(), 1, "message", "note", &from, nil, actor, database)
+	err = ilog.Append(context.Background(), 1, "message", "note", &from, nil, actor, false, database)
 	if err == nil {
 		t.Error("expected error for message with non-nil fromState")
 	}
 
 	// valid transition — no error
 	to := "PLANNING"
-	err = ilog.Append(context.Background(), 1, "transition", "note", &from, &to, actor, database)
+	err = ilog.Append(context.Background(), 1, "transition", "note", &from, &to, actor, false, database)
 	if err != nil {
 		t.Errorf("unexpected error for valid transition: %v", err)
 	}
@@ -129,7 +129,7 @@ func TestGetAll_ChronologicalOrder(t *testing.T) {
 	actor := mustSeedDB(t, database)
 
 	for _, body := range []string{"body1", "body2", "body3"} {
-		if err := ilog.Append(context.Background(), 1, "message", body, nil, nil, actor, database); err != nil {
+		if err := ilog.Append(context.Background(), 1, "message", body, nil, nil, actor, false, database); err != nil {
 			t.Fatalf("Append(%q): %v", body, err)
 		}
 	}
@@ -172,7 +172,7 @@ func TestGetAll_SoftDeleteFilter(t *testing.T) {
 	database := mustOpenDB(t)
 	actor := mustSeedDB(t, database)
 
-	if err := ilog.Append(context.Background(), 1, "message", "will be deleted", nil, nil, actor, database); err != nil {
+	if err := ilog.Append(context.Background(), 1, "message", "will be deleted", nil, nil, actor, false, database); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
 
@@ -193,10 +193,10 @@ func TestLatestPlan_ReturnsMostRecent(t *testing.T) {
 	database := mustOpenDB(t)
 	actor := mustSeedDB(t, database)
 
-	if err := ilog.Append(context.Background(), 1, "plan", "plan-v1", nil, nil, actor, database); err != nil {
+	if err := ilog.Append(context.Background(), 1, "plan", "plan-v1", nil, nil, actor, false, database); err != nil {
 		t.Fatalf("Append plan-v1: %v", err)
 	}
-	if err := ilog.Append(context.Background(), 1, "plan", "plan-v2", nil, nil, actor, database); err != nil {
+	if err := ilog.Append(context.Background(), 1, "plan", "plan-v2", nil, nil, actor, false, database); err != nil {
 		t.Fatalf("Append plan-v2: %v", err)
 	}
 
@@ -216,7 +216,7 @@ func TestLatestPlan_NilWhenAbsent(t *testing.T) {
 	database := mustOpenDB(t)
 	actor := mustSeedDB(t, database)
 
-	if err := ilog.Append(context.Background(), 1, "message", "just a message", nil, nil, actor, database); err != nil {
+	if err := ilog.Append(context.Background(), 1, "message", "just a message", nil, nil, actor, false, database); err != nil {
 		t.Fatalf("Append: %v", err)
 	}
 
@@ -238,7 +238,7 @@ func TestAppend_WithTransaction(t *testing.T) {
 		t.Fatalf("Begin: %v", err)
 	}
 
-	if err := ilog.Append(context.Background(), 1, "message", "rolled back", nil, nil, actor, tx); err != nil {
+	if err := ilog.Append(context.Background(), 1, "message", "rolled back", nil, nil, actor, false, tx); err != nil {
 		tx.Rollback()
 		t.Fatalf("Append via tx: %v", err)
 	}
