@@ -61,6 +61,13 @@ type sparklineLoadedMsg struct {
 	epoch int
 }
 
+// forcedOpsLoadedMsg carries freshly-loaded forced ops entries and the epoch
+// it was requested at. Stale loads (epoch mismatch) are discarded.
+type forcedOpsLoadedMsg struct {
+	entries []forcedOpsEntry
+	epoch   int
+}
+
 // RootModel is the top-level BubbleTea model for the side monitor mode.
 type RootModel struct {
 	db           *sql.DB
@@ -82,6 +89,8 @@ type RootModel struct {
 	burnEpoch      int
 	sparkline      sparklineData
 	sparklineEpoch int
+	forcedOps      []forcedOpsEntry
+	forcedOpsEpoch int
 	// Comet animation state — ping-pong left↔right.
 	cometPos      float64 // 0..1 position of the head along the bar
 	cometDir      int     // +1 = left→right, -1 = right→left (true direction)
@@ -169,6 +178,18 @@ func loadSparklineCmd(db *sql.DB, epoch int) tea.Cmd {
 	}
 }
 
+// loadForcedOpsCmd returns a tea.Cmd that loads forced ops entries in the
+// background and sends a forcedOpsLoadedMsg tagged with the given epoch.
+func loadForcedOpsCmd(db *sql.DB, epoch int) tea.Cmd {
+	return func() tea.Msg {
+		entries, err := loadForcedOps(db)
+		if err != nil {
+			return forcedOpsLoadedMsg{epoch: epoch}
+		}
+		return forcedOpsLoadedMsg{entries: entries, epoch: epoch}
+	}
+}
+
 // Init satisfies tea.Model. Starts the poll tick, clock tick, and initial data loads.
 // Note: Init uses a value receiver — mutations inside Init are discarded.
 func (m RootModel) Init() tea.Cmd {
@@ -181,6 +202,7 @@ func (m RootModel) Init() tea.Cmd {
 		loadSessionsCmd(m.db, m.sessEpoch),
 		loadTokenBurnCmd(m.db, m.burnEpoch),
 		loadSparklineCmd(m.db, m.sparklineEpoch),
+		loadForcedOpsCmd(m.db, m.forcedOpsEpoch),
 	)
 }
 
@@ -208,12 +230,14 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.sessEpoch++
 		m.burnEpoch++
 		m.sparklineEpoch++
+		m.forcedOpsEpoch++
 		cmds = append(cmds, pollCmd(m.pollInterval))
 		cmds = append(cmds, loadStatsCmd(m.db, m.statsEpoch))
 		cmds = append(cmds, loadFeedCmd(m.db, m.feedEpoch))
 		cmds = append(cmds, loadSessionsCmd(m.db, m.sessEpoch))
 		cmds = append(cmds, loadTokenBurnCmd(m.db, m.burnEpoch))
 		cmds = append(cmds, loadSparklineCmd(m.db, m.sparklineEpoch))
+		cmds = append(cmds, loadForcedOpsCmd(m.db, m.forcedOpsEpoch))
 		return m, tea.Batch(cmds...)
 
 	case statsLoadedMsg:
@@ -276,6 +300,12 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, tea.Batch(cmds...)
 
+	case forcedOpsLoadedMsg:
+		if msg.epoch == m.forcedOpsEpoch {
+			m.forcedOps = msg.entries
+		}
+		return m, tea.Batch(cmds...)
+
 	case animTickMsg:
 		// Comet ping-pong: ~8 s to cross the full width (160 × 50 ms ticks).
 		// cometDir flips instantly at each edge; cometDirBlend lerps toward it
@@ -315,8 +345,8 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 //
 // Everything is sized to fit m.height — no scrolling.
 func (m RootModel) View() string {
-	if m.width < 60 || m.height < 20 {
-		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 60×20", m.width, m.height)
+	if m.width < 50 || m.height < 16 {
+		errMsg := fmt.Sprintf("Terminal too small (%dx%d)\nMinimum: 50×16", m.width, m.height)
 		return lipgloss.Place(m.width, m.height,
 			lipgloss.Center, lipgloss.Center,
 			lipgloss.NewStyle().Foreground(styles.Danger).Render(errMsg))
@@ -346,8 +376,8 @@ func (m RootModel) View() string {
 
 	// — Bottom area —
 	bottomH := m.height - headerH - statsH - cometBoxH - footerH
-	if bottomH < 4 {
-		bottomH = 4
+	if bottomH < 2 {
+		bottomH = 2
 	}
 
 	// Left column: 1/3 width. Feed: 2/3 width.
@@ -357,19 +387,36 @@ func (m RootModel) View() string {
 	// Bottom boxes are 6 rendered rows each (title + content + border = 6).
 	// Both the token burn (left) and velocity sparkline (right) use this height.
 	const smallBoxH = 6
-	const smallBoxContentH = smallBoxH - 2 // 4 lines of content inside border
+
+	// Decide how much space the small boxes (burn / sparkline) get.
+	// They need at least 3 rows each (1 content + 2 border).
+	const minSmallH = 3
+	smallH := smallBoxH // preferred 6
+	if smallH > bottomH-minSmallH {
+		smallH = bottomH - minSmallH // squeeze them down
+		if smallH < minSmallH {
+			smallH = minSmallH
+		}
+	}
+	smallContentH := smallH - 2
+	if smallContentH < 1 {
+		smallContentH = 1
+	}
 
 	// Left column: sessions fills the space above token burn.
-	sessRenderedH := bottomH - smallBoxH
-	if sessRenderedH < 3 {
-		sessRenderedH = 3 // minimum: 1 content line + 2 border rows
+	sessRenderedH := bottomH - smallH
+	if sessRenderedH < minSmallH {
+		sessRenderedH = minSmallH
 	}
 	sessContentH := sessRenderedH - 2
+	if sessContentH < 1 {
+		sessContentH = 1
+	}
 
 	// Right column: feed fills the space above velocity sparkline.
-	feedRenderedH := bottomH - smallBoxH
-	if feedRenderedH < 3 {
-		feedRenderedH = 3
+	feedRenderedH := bottomH - smallH
+	if feedRenderedH < minSmallH {
+		feedRenderedH = minSmallH
 	}
 	feedContentH := feedRenderedH - 2
 	if feedContentH < 1 {
@@ -387,10 +434,20 @@ func (m RootModel) View() string {
 		Height(sessContentH).
 		Render(strings.TrimRight(renderSessions(m.sessionsData, sessW-2), "\n"))
 
+	// Split left column bottom row: TOKEN BURN (left half) + FORCED OPS (right half).
+	halfW := sessW / 2
+	burnContentW := max(1, halfW-2)
+	forcedOpsContentW := max(1, sessW-halfW-2)
+
 	burnBox := styles.PanelInactive.
-		Width(sessW - 2).
-		Height(smallBoxContentH).
-		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, sessW-2), "\n"))
+		Width(burnContentW).
+		Height(smallContentH).
+		Render(strings.TrimRight(renderTokenBurn(m.tokenBurn, burnContentW), "\n"))
+
+	forcedOpsBox := styles.PanelInactive.
+		Width(forcedOpsContentW).
+		Height(smallContentH).
+		Render(strings.TrimRight(renderForcedOps(m.forcedOps, forcedOpsContentW), "\n"))
 
 	feedBox := styles.PanelInactive.
 		Width(feedW - 2).
@@ -399,10 +456,11 @@ func (m RootModel) View() string {
 
 	sparklineBox := styles.PanelInactive.
 		Width(feedW - 2).
-		Height(smallBoxContentH).
+		Height(smallContentH).
 		Render(strings.TrimRight(renderSparkline(m.sparkline, feedW-2), "\n"))
 
-	leftCol := lipgloss.JoinVertical(lipgloss.Left, sessBox, burnBox)
+	smallRow := lipgloss.JoinHorizontal(lipgloss.Top, burnBox, forcedOpsBox)
+	leftCol := lipgloss.JoinVertical(lipgloss.Left, sessBox, smallRow)
 	rightCol := lipgloss.JoinVertical(lipgloss.Left, feedBox, sparklineBox)
 	bottomRow := lipgloss.JoinHorizontal(lipgloss.Top, leftCol, rightCol)
 

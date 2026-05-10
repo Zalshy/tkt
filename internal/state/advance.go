@@ -175,7 +175,7 @@ func Execute(ticketID string, to models.Status, note string, actor *models.Sessi
 	}
 	fromStr := string(t.Status)
 	toStr := string(to)
-	if err := ilog.Append(context.Background(), parsedIntID, "transition", logBody, &fromStr, &toStr, actor, tx); err != nil {
+	if err := ilog.Append(context.Background(), parsedIntID, "transition", logBody, &fromStr, &toStr, actor, pre.warn != nil, tx); err != nil {
 		return fmt.Errorf("state.Execute: log append: %w", err)
 	}
 

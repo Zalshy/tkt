@@ -232,7 +232,7 @@ func TestExecute_ForceWarning(t *testing.T) {
 	// Insert a transition log entry that records arch-grace as the last submitter.
 	fromStr := string(models.StatusInProgress)
 	toStr := string(models.StatusDone)
-	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "done", &fromStr, &toStr, arch, database); err != nil {
+	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "done", &fromStr, &toStr, arch, false, database); err != nil {
 		t.Fatalf("seed log entry: %v", err)
 	}
 
@@ -307,7 +307,7 @@ func TestExecute_SubmitterResolution(t *testing.T) {
 	// (Simulates: arch-irene advanced the ticket to DONE.)
 	fromStr := string(models.StatusInProgress)
 	toStr := string(models.StatusDone)
-	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "submitted", &fromStr, &toStr, archA, database); err != nil {
+	if err := ilog.Append(context.Background(), mustParseID(t, id), "transition", "submitted", &fromStr, &toStr, archA, false, database); err != nil {
 		t.Fatalf("seed log entry: %v", err)
 	}
 

@@ -12,7 +12,7 @@ import (
 // TestRenderSessionsEmpty verifies that renderSessions with nil events does not
 // panic and produces output containing the "SESSIONS" section header.
 func TestRenderSessionsEmpty(t *testing.T) {
-	out := renderSessions(nil, sessionCounts{}, 80)
+	out := renderSessions(nil, 80)
 	if !strings.Contains(out, "SESSIONS") {
 		t.Errorf("expected 'SESSIONS' in output, got: %q", out)
 	}
@@ -28,24 +28,12 @@ func TestRenderSessionsEntries(t *testing.T) {
 			startedAt: time.Now().Add(-10 * time.Minute),
 		},
 	}
-	out := renderSessions(events, sessionCounts{}, 80)
+	out := renderSessions(events, 80)
 	if !strings.Contains(out, "impl-fast-session") {
 		t.Errorf("expected 'impl-fast-session' in output, got: %q", out)
 	}
 	if !strings.Contains(out, "started") {
 		t.Errorf("expected 'started' label in output, got: %q", out)
-	}
-}
-
-// TestRenderSessionsCounts verifies that sessionCounts values are rendered as
-// "arch: N" and "impl: N" in the output.
-func TestRenderSessionsCounts(t *testing.T) {
-	out := renderSessions(nil, sessionCounts{arch: 1, impl: 2}, 80)
-	if !strings.Contains(out, "arch: 1") {
-		t.Errorf("expected 'arch: 1' in output, got: %q", out)
-	}
-	if !strings.Contains(out, "impl: 2") {
-		t.Errorf("expected 'impl: 2' in output, got: %q", out)
 	}
 }
 
@@ -69,8 +57,8 @@ func TestRenderSessionsHighlight(t *testing.T) {
 	// Event with zero arrivedAt — no highlight.
 	oldEvent := base
 
-	outNew := renderSessions([]sessionEvent{newEvent}, sessionCounts{}, 80)
-	outOld := renderSessions([]sessionEvent{oldEvent}, sessionCounts{}, 80)
+	outNew := renderSessions([]sessionEvent{newEvent}, 80)
+	outOld := renderSessions([]sessionEvent{oldEvent}, 80)
 
 	if outNew == outOld {
 		t.Errorf("expected different output for new vs old session, but both rendered identically")

@@ -111,6 +111,7 @@ CREATE TABLE ticket_log_new (
     body         TEXT    NOT NULL,
     from_state   TEXT,
     to_state     TEXT,
+    forced       INTEGER NOT NULL DEFAULT 0,
     created_at   DATETIME NOT NULL DEFAULT (datetime('now')),
     deleted_at   DATETIME NULL
 )`

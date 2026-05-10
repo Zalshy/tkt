@@ -104,6 +104,10 @@ func renderStatBox(title string, rows []statRow, width int) string {
 	lines = append(lines, "") // blank line under title
 
 	for _, r := range rows {
+		if r.label == "" {
+			lines = append(lines, "")
+			continue
+		}
 		label := r.label
 		if len(label) > labelW {
 			label = label[:labelW-1] + "…"
@@ -233,6 +237,9 @@ func renderStatsRow(s statsData, totalWidth int) string {
 	for i, tc := range types {
 		col := typePalette[i%len(typePalette)]
 		typeRows = append(typeRows, statRow{tc.name, col, tc.count})
+	}
+	for len(typeRows) < 5 {
+		typeRows = append(typeRows, statRow{label: "", color: lipgloss.Color(""), count: 0})
 	}
 
 	box1 := renderStatBox("By Status", statusRows, boxW)

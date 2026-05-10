@@ -10,11 +10,11 @@ import (
 )
 
 // TestRenderFeedEmpty verifies that renderFeed with nil entries does not panic
-// and produces output containing the "TICKET CHANGES" section header.
+// and produces output containing the "TICKET ACTIVITY" section header.
 func TestRenderFeedEmpty(t *testing.T) {
-	out := renderFeed(nil, 80)
-	if !strings.Contains(out, "TICKET CHANGES") {
-		t.Errorf("expected 'TICKET CHANGES' in output, got: %q", out)
+	out := renderFeed(nil, 80, 10)
+	if !strings.Contains(out, "TICKET ACTIVITY") {
+		t.Errorf("expected 'TICKET ACTIVITY' in output, got: %q", out)
 	}
 }
 
@@ -29,7 +29,7 @@ func TestRenderFeedEntries(t *testing.T) {
 			createdAt:   time.Now().Add(-30 * time.Second),
 		},
 	}
-	out := renderFeed(entries, 80)
+	out := renderFeed(entries, 80, 10)
 	if !strings.Contains(out, "test-session") {
 		t.Errorf("expected 'test-session' in output, got: %q", out)
 	}
@@ -59,8 +59,8 @@ func TestRenderFeedHighlight(t *testing.T) {
 	// Entry with zero arrivedAt — no highlight.
 	oldEntry := base
 
-	outNew := renderFeed([]feedEntry{newEntry}, 80)
-	outOld := renderFeed([]feedEntry{oldEntry}, 80)
+	outNew := renderFeed([]feedEntry{newEntry}, 80, 10)
+	outOld := renderFeed([]feedEntry{oldEntry}, 80, 10)
 
 	if outNew == outOld {
 		t.Errorf("expected different output for new vs old entry, but both rendered identically")
@@ -73,10 +73,10 @@ func TestRelAge(t *testing.T) {
 		secs int
 		want string
 	}{
-		{30, "30s"},
-		{90, "1m"},
-		{3700, "1h"},
-		{90000, "1d"},
+		{30, "just now"},
+		{90, "1m ago"},
+		{3700, "1h ago"},
+		{90000, "1d ago"},
 	}
 
 	for _, tc := range cases {

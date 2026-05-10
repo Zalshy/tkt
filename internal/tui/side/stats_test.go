@@ -8,7 +8,7 @@ import (
 // TestRenderStatsZeroData verifies that renderStats with empty statsData does
 // not panic, and that the output contains "STATS" and "TODO".
 func TestRenderStatsZeroData(t *testing.T) {
-	out := renderStats(statsData{}, 80)
+	out := renderStatsRow(statsData{}, 80)
 	if !strings.Contains(out, "STATS") {
 		t.Errorf("expected output to contain %q, got: %q", "STATS", out)
 	}
@@ -26,7 +26,7 @@ func TestRenderStatsZeroDataContainsTODO(t *testing.T) {
 		byAttention: map[string]int{},
 		byMainType:  map[string]int{},
 	}
-	out := renderStats(s, 80)
+	out := renderStatsRow(s, 80)
 	if !strings.Contains(out, "STATS") {
 		t.Errorf("expected output to contain %q, got: %q", "STATS", out)
 	}
@@ -60,7 +60,7 @@ func TestRenderStatsPopulated(t *testing.T) {
 		},
 	}
 
-	out := renderStats(s, 80)
+	out := renderStatsRow(s, 80)
 
 	checks := []string{
 		"STATS",
@@ -80,7 +80,7 @@ func TestRenderStatsPopulated(t *testing.T) {
 // does not panic (exercises bar-width clamping and column math).
 func TestRenderStatsNarrow(t *testing.T) {
 	// Should not panic.
-	out := renderStats(statsData{}, 30)
+	out := renderStatsRow(statsData{}, 30)
 	if !strings.Contains(out, "STATS") {
 		t.Errorf("expected output to contain %q at narrow width, got: %q", "STATS", out)
 	}

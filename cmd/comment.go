@@ -89,7 +89,7 @@ func runComment(cmd *cobra.Command, args []string) error {
 			continue
 		}
 
-		if err := tktlog.Append(context.Background(), t.ID, "message", body, nil, nil, sess, database); err != nil {
+		if err := tktlog.Append(context.Background(), t.ID, "message", body, nil, nil, sess, false, database); err != nil {
 			errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
 			continue
 		}

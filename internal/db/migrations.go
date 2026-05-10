@@ -290,6 +290,12 @@ WHERE kind = 'usage'
 		`ALTER TABLE project_context_new RENAME TO project_context`,
 		createIndexProjectContextDeletedAt,
 	},
+	// V19 — add forced boolean column to ticket_log.
+	// ALTER TABLE ADD COLUMN with NOT NULL DEFAULT 0 is valid in SQLite without a rebuild.
+	// All existing rows silently get forced = 0.
+	{
+		`ALTER TABLE ticket_log ADD COLUMN forced INTEGER NOT NULL DEFAULT 0`,
+	},
 }
 
 // verifyV8Backfill asserts that the number of rows inserted into ticket_usage
