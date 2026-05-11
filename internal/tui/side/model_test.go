@@ -37,7 +37,7 @@ func TestPlaceholderSections(t *testing.T) {
 	m = updated.(RootModel)
 
 	out := m.View()
-	for _, want := range []string{"STATS", "TICKET CHANGES", "SESSIONS"} {
+	for _, want := range []string{"loading", "TICKET ACTIVITY", "SESSIONS"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in View() output, got: %q", want, out)
 		}

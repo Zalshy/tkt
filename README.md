@@ -144,6 +144,16 @@ Run `tkt init` in a project for the exact snippet to paste into your tool's conf
 
 The MCP server exposes read tools such as `tkt_list_tickets`, `tkt_show_ticket`, `tkt_search_tickets`, `tkt_stats` (including `window`), `tkt_list_man_pages`, and `tkt_read_man_page`, plus write/admin tools when not started with `--readonly`.
 
+## Development setup
+
+After cloning, install the pre-push Git hook (one-time per clone):
+
+```bash
+make install-hooks
+```
+
+The hook runs `go test ./...` before every push and blocks the push if any unit test fails.
+
 ## License
 
 MIT

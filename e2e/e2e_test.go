@@ -161,6 +161,16 @@ func advanceTicket(t *testing.T, dir, id, note string) string {
 	return stdout
 }
 
+// advanceTicketTo runs tkt advance <id> --to <to> --note <note> and fails on error.
+func advanceTicketTo(t *testing.T, dir, id, to, note string) string {
+	t.Helper()
+	stdout, stderr, code := run(t, dir, "advance", id, "--to", to, "--note", note)
+	if code != 0 {
+		t.Fatalf("advance %q --to %q --note %q failed (exit %d): stdout=%q stderr=%q", id, to, note, code, stdout, stderr)
+	}
+	return stdout
+}
+
 // openDB opens the SQLite database for an initialized project dir.
 // The caller is responsible for closing it.
 func openDB(t *testing.T, dir string) *sql.DB {
@@ -601,6 +611,78 @@ func TestE2E(t *testing.T) {
 		}
 		if !strings.Contains(showOut, "VERIFIED") {
 			t.Errorf("expected VERIFIED in show output, got: %q", showOut)
+		}
+	})
+
+	t.Run("lifecycle_full", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+
+		// Session A (implementer): create ticket, advance TODO→PLANNING, submit plan
+		createSession(t, dir, "implementer")
+		createTicket(t, dir, "Full lifecycle ticket")
+
+		// Assert status == TODO after tkt new
+		if s := ticketStatus(t, dir, 1); s != "TODO" {
+			t.Fatalf("expected TODO after new, got %q", s)
+		}
+
+		// TODO → PLANNING
+		advanceTicket(t, dir, "1", "moving to planning")
+
+		// Assert status == PLANNING
+		if s := ticketStatus(t, dir, 1); s != "PLANNING" {
+			t.Fatalf("expected PLANNING after TODO→PLANNING, got %q", s)
+		}
+
+		// Submit plan using --body flag
+		if _, stderr, code := run(t, dir, "plan", "1", "--body", "## Full lifecycle plan\n\n- Step 1: implement\n- Step 2: test\n\nTest plan: unit tests.\n"); code != 0 {
+			t.Fatalf("plan --body failed: %q", stderr)
+		}
+
+		// Assert plan text visible in tkt show output
+		showOut, _, showCode := run(t, dir, "show", "1")
+		if showCode != 0 {
+			t.Fatalf("show after plan failed: exit %d", showCode)
+		}
+		if !strings.Contains(showOut, "Full lifecycle plan") {
+			t.Errorf("expected plan text in show output, got: %q", showOut)
+		}
+
+		// Session B (architect): advance PLANNING→IN_PROGRESS
+		createSession(t, dir, "architect")
+		advanceTicketTo(t, dir, "1", "IN_PROGRESS", "approving plan")
+
+		// Assert status == IN_PROGRESS
+		if s := ticketStatus(t, dir, 1); s != "IN_PROGRESS" {
+			t.Fatalf("expected IN_PROGRESS after PLANNING→IN_PROGRESS, got %q", s)
+		}
+
+		// Session C (implementer): advance IN_PROGRESS→DONE
+		createSession(t, dir, "implementer")
+		advanceTicket(t, dir, "1", "implementation complete")
+
+		// Assert status == DONE
+		if s := ticketStatus(t, dir, 1); s != "DONE" {
+			t.Fatalf("expected DONE after IN_PROGRESS→DONE, got %q", s)
+		}
+
+		// Session D (architect): advance DONE→VERIFIED
+		createSession(t, dir, "architect")
+		advanceTicketTo(t, dir, "1", "VERIFIED", "verified and accepted")
+
+		// Assert status == VERIFIED
+		if s := ticketStatus(t, dir, 1); s != "VERIFIED" {
+			t.Fatalf("expected VERIFIED after DONE→VERIFIED, got %q", s)
+		}
+
+		// Assert tkt show output contains "VERIFIED"
+		finalShowOut, _, finalShowCode := run(t, dir, "show", "1")
+		if finalShowCode != 0 {
+			t.Fatalf("final show failed: exit %d", finalShowCode)
+		}
+		if !strings.Contains(finalShowOut, "VERIFIED") {
+			t.Errorf("expected VERIFIED in final show output, got: %q", finalShowOut)
 		}
 	})
 

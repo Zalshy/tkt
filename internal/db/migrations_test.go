@@ -121,8 +121,8 @@ func TestMigration_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestMigration_V2ToV3(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -180,8 +180,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 18 {
-		t.Errorf("schema_version after first Open = %d, want 18", v1)
+	if v1 != 19 {
+		t.Errorf("schema_version after first Open = %d, want 19", v1)
 	}
 	db1.Close()
 
@@ -195,8 +195,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 18 {
-		t.Errorf("schema_version after second Open = %d, want 18", v2)
+	if v2 != 19 {
+		t.Errorf("schema_version after second Open = %d, want 19", v2)
 	}
 }
 
@@ -210,8 +210,8 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// Assert exactly 3 rows in roles (architect, implementer, monitor).
@@ -323,8 +323,8 @@ func TestMigration_V7_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	var name string
@@ -466,8 +466,8 @@ func TestMigration_V7_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	var count int
@@ -632,8 +632,8 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// Assert all usage rows were deleted (V8) and are absent from the final ticket_log.
@@ -710,8 +710,8 @@ func TestMigration_V9_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// V10 renamed ticket_log_new to ticket_log — the _new table must not exist.
@@ -861,8 +861,8 @@ func TestMigration_V9_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// After V10, ticket_log_new must not exist.
@@ -1039,8 +1039,8 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// Assert ticket_log_new does NOT exist (V10 renamed it to ticket_log).
@@ -1200,8 +1200,8 @@ func TestMigration_V11_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// After V12, ticket_dependencies_new is gone (renamed to ticket_dependencies).
@@ -1292,8 +1292,8 @@ func TestMigration_V12_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// ticket_dependencies_new must NOT exist after V12 (renamed to ticket_dependencies).
@@ -1453,8 +1453,8 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 18 {
-		t.Errorf("schema_version = %d, want 18", version)
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
 	}
 
 	// ticket_dependencies_new must NOT exist.
@@ -1471,5 +1471,73 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	}
 	if count != 1 {
 		t.Errorf("ticket_dependencies count = %d, want 1", count)
+	}
+}
+
+// TestMigrateV19_ColumnAlreadyPresent verifies the V19 idempotency guard:
+// if ticket_log already has a 'forced' column before V19 runs, the migration
+// must skip the ALTER TABLE, bump schema_version to 19, and complete without error.
+func TestMigrateV19_ColumnAlreadyPresent(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".tkt"), 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+
+	// Open once — lands at the current schema version (all migrations applied).
+	db1, err := Open(root)
+	if err != nil {
+		t.Fatalf("first Open: %v", err)
+	}
+
+	// Downgrade to V18: the 'forced' column is already present in ticket_log
+	// (it was added by V19 during the first Open), so we reset schema_version
+	// to 18 to simulate a DB at V18 state that already has the column out-of-band.
+	if _, err := db1.Exec(`UPDATE schema_version SET version = 18`); err != nil {
+		t.Fatalf("downgrade schema_version to 18: %v", err)
+	}
+	db1.Close()
+
+	// Re-open — only V19 needs to run.
+	// V19 must detect 'forced' already exists and take the skip path (no ALTER TABLE).
+	db2, err := Open(root)
+	if err != nil {
+		t.Fatalf("second Open (V16-V19 migration): %v", err)
+	}
+	defer db2.Close()
+
+	// Assert final schema_version == 19.
+	var version int
+	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
+		t.Fatalf("SELECT schema_version: %v", err)
+	}
+	if version != 19 {
+		t.Errorf("schema_version = %d, want 19", version)
+	}
+
+	// Assert 'forced' column is present in ticket_log.
+	rows, err := db2.Query(`PRAGMA table_info(ticket_log)`)
+	if err != nil {
+		t.Fatalf("PRAGMA table_info(ticket_log): %v", err)
+	}
+	defer rows.Close()
+	found := false
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			t.Fatalf("scan table_info row: %v", err)
+		}
+		if name == "forced" {
+			found = true
+		}
+	}
+	if err := rows.Err(); err != nil {
+		t.Fatalf("table_info rows error: %v", err)
+	}
+	if !found {
+		t.Errorf("ticket_log is missing 'forced' column after V19 migration")
 	}
 }
