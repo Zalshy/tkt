@@ -6,20 +6,17 @@ import (
 )
 
 // TestRenderStatsZeroData verifies that renderStats with empty statsData does
-// not panic, and that the output contains "STATS" and "TODO".
+// not panic. statsData{} has nil maps → loading path returns "loading…".
 func TestRenderStatsZeroData(t *testing.T) {
 	out := renderStatsRow(statsData{}, 80)
-	if !strings.Contains(out, "STATS") {
-		t.Errorf("expected output to contain %q, got: %q", "STATS", out)
+	if !strings.Contains(out, "loading") {
+		t.Errorf("expected output to contain %q, got: %q", "loading", out)
 	}
-	// Zero data (nil maps) shows "loading…"; populated (non-nil maps) shows status rows.
-	// An empty statsData{} has nil maps → loading path.
-	// We just verify it contains "STATS" and doesn't panic.
-	_ = out
 }
 
 // TestRenderStatsZeroDataContainsTODO verifies that renderStats with non-nil
-// but empty maps renders status rows including "TODO".
+// but empty maps renders the stat boxes (not the loading placeholder).
+// Labels are lowercased in the rendered output.
 func TestRenderStatsZeroDataContainsTODO(t *testing.T) {
 	s := statsData{
 		byStatus:    map[string]int{},
@@ -27,11 +24,11 @@ func TestRenderStatsZeroDataContainsTODO(t *testing.T) {
 		byMainType:  map[string]int{},
 	}
 	out := renderStatsRow(s, 80)
-	if !strings.Contains(out, "STATS") {
-		t.Errorf("expected output to contain %q, got: %q", "STATS", out)
+	if !strings.Contains(out, "By Status") {
+		t.Errorf("expected output to contain %q, got: %q", "By Status", out)
 	}
-	if !strings.Contains(out, "TODO") {
-		t.Errorf("expected output to contain %q, got: %q", "TODO", out)
+	if !strings.Contains(out, "todo") {
+		t.Errorf("expected output to contain %q, got: %q", "todo", out)
 	}
 }
 
@@ -63,11 +60,11 @@ func TestRenderStatsPopulated(t *testing.T) {
 	out := renderStatsRow(s, 80)
 
 	checks := []string{
-		"STATS",
-		"IN_PROGRESS",
-		"by attention level",
-		"by main_type",
-		"█",
+		"By Status",    // box title
+		"in_prog",      // IN_PROGRESS truncated to labelW: "in_prog…"
+		"By Attention", // attention box title
+		"By Type",      // type box title
+		"▌",            // bar character (half-block, one per ticket)
 	}
 	for _, want := range checks {
 		if !strings.Contains(out, want) {
@@ -78,10 +75,11 @@ func TestRenderStatsPopulated(t *testing.T) {
 
 // TestRenderStatsNarrow verifies that renderStats with a very narrow width
 // does not panic (exercises bar-width clamping and column math).
+// nil maps → loading path returns "loading…".
 func TestRenderStatsNarrow(t *testing.T) {
 	// Should not panic.
 	out := renderStatsRow(statsData{}, 30)
-	if !strings.Contains(out, "STATS") {
-		t.Errorf("expected output to contain %q at narrow width, got: %q", "STATS", out)
+	if !strings.Contains(out, "loading") {
+		t.Errorf("expected output to contain %q at narrow width, got: %q", "loading", out)
 	}
 }
