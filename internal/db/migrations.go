@@ -412,6 +412,31 @@ func verifyV18Backfill(tx *sql.Tx) error {
 	return nil
 }
 
+// columnExists reports whether the named column is present in the given table.
+// It queries PRAGMA table_info inside the provided transaction so it is
+// visible within an in-progress migration.
+func columnExists(tx *sql.Tx, table, column string) (bool, error) {
+	rows, err := tx.Query(fmt.Sprintf(`PRAGMA table_info(%s)`, table))
+	if err != nil {
+		return false, fmt.Errorf("columnExists: PRAGMA table_info(%s): %w", table, err)
+	}
+	defer rows.Close()
+	for rows.Next() {
+		var cid int
+		var name, colType string
+		var notNull int
+		var dfltValue any
+		var pk int
+		if err := rows.Scan(&cid, &name, &colType, &notNull, &dfltValue, &pk); err != nil {
+			return false, fmt.Errorf("columnExists: scan: %w", err)
+		}
+		if name == column {
+			return true, nil
+		}
+	}
+	return false, rows.Err()
+}
+
 // migrate ensures the schema_version table exists, then applies any
 // migrations whose version number exceeds the current stored version.
 // It is only called from Open and is not exported.
@@ -441,6 +466,31 @@ func migrate(db *sql.DB) error {
 		tx, err := db.Begin()
 		if err != nil {
 			return fmt.Errorf("migrate: begin tx for V%d: %w", targetVersion, err)
+		}
+
+		if targetVersion == 19 {
+			exists, err := columnExists(tx, "ticket_log", "forced")
+			if err != nil {
+				_ = tx.Rollback()
+				return fmt.Errorf("migrate: V19 columnExists check: %w", err)
+			}
+			if exists {
+				// Column was already added outside of the migration system.
+				// Skip the ALTER TABLE and just bump schema_version.
+				if _, err := tx.Exec(`DELETE FROM schema_version`); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("migrate: V19 skip: clear schema_version: %w", err)
+				}
+				if _, err := tx.Exec(`INSERT INTO schema_version (version) VALUES (?)`, 19); err != nil {
+					_ = tx.Rollback()
+					return fmt.Errorf("migrate: V19 skip: write schema_version: %w", err)
+				}
+				if err := tx.Commit(); err != nil {
+					return fmt.Errorf("migrate: V19 skip: commit: %w", err)
+				}
+				current = 19
+				continue
+			}
 		}
 
 		for _, stmt := range stmts {

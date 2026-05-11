@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+set -e
+echo "Running unit tests before push..."
+go test ./...
+echo "Tests passed. Proceeding with push."
