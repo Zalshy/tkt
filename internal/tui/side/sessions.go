@@ -18,7 +18,7 @@ type sessionEvent struct {
 	arrivedAt time.Time // set when first detected as new on a poll cycle; zero for pre-existing
 }
 
-// loadSessions queries the 5 most recent active sessions (excluding monitor).
+// loadSessions queries all active sessions (excluding monitor).
 // Returns empty results (not an error) when db is nil.
 func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 	if db == nil {
@@ -32,7 +32,6 @@ func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 		WHERE s.expired_at IS NULL
 		  AND r.base_role != 'monitor'
 		ORDER BY s.created_at DESC
-		LIMIT 5
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("sessions.loadSessions: query: %w", err)

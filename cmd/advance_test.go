@@ -186,6 +186,47 @@ func TestAdvance_NoSession(t *testing.T) {
 	}
 }
 
+func TestAdvance_ExpiredSessionMessage(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("open db: %v", err)
+	}
+	_, err = database.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
+		 VALUES ('expired-advance', 'implementer', 'expired-advance', datetime('now'), datetime('now'), datetime('now'))`,
+	)
+	if err != nil {
+		database.Close()
+		t.Fatalf("insert expired session: %v", err)
+	}
+	database.Close()
+
+	if err := os.WriteFile(filepath.Join(dir, ".tkt", "session"), []byte("expired-advance"), 0o644); err != nil {
+		t.Fatalf("write session file: %v", err)
+	}
+
+	_, err = runAdvanceInDir(t, dir, []string{"1"}, func() {
+		advanceNote = "some note"
+	})
+	if err == nil {
+		t.Fatal("expected error for expired session, got nil")
+	}
+	if !strings.Contains(err.Error(), "session has expired after inactivity") {
+		t.Errorf("expected expired-session message, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "tkt session --role <architect|implementer>") {
+		t.Errorf("expected recovery command hint, got: %v", err)
+	}
+	if !strings.Contains(err.Error(), "retry this command") {
+		t.Errorf("expected retry hint, got: %v", err)
+	}
+}
+
 // TestAdvance_InvalidTo verifies that an unrecognized --to value returns an error.
 func TestAdvance_InvalidTo(t *testing.T) {
 	dir := t.TempDir()

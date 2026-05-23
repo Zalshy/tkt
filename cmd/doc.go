@@ -128,6 +128,9 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
 		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
+		}
 		return fmt.Errorf("doc add: load session: %w", err)
 	}
 
@@ -242,6 +245,9 @@ func runDocArchive(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
 		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
+		}
 		return fmt.Errorf("doc archive: load session: %w", err)
 	}
 
@@ -263,4 +269,3 @@ func runDocArchive(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(cmd.OutOrStdout(), "archived: docs/archived/%s\n", filepath.Base(src))
 	return nil
 }
-

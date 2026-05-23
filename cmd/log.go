@@ -59,6 +59,9 @@ func runLog(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
 		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
+		}
 		return fmt.Errorf("log: load session: %w", err)
 	}
 

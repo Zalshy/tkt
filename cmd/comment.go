@@ -76,6 +76,9 @@ func runComment(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
 		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
+		}
 		return fmt.Errorf("comment: load session: %w", err)
 	}
 

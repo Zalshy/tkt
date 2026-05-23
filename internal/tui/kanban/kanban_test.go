@@ -1,12 +1,20 @@
 package kanban
 
 import (
+	"regexp"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/tui/styles"
 )
+
+func stripANSIKanban(s string) string {
+	re := regexp.MustCompile(`\x1b\[[0-9;]*m`)
+	return re.ReplaceAllString(s, "")
+}
 
 // TestBoard_SetTickets_distributes verifies that SetTickets correctly distributes
 // tickets into the 3 visual columns:
@@ -196,5 +204,98 @@ func TestBoard_ActiveCol_Navigation(t *testing.T) {
 	b, _ = b.Update(left)
 	if got := b.ActiveCol(); got != 0 {
 		t.Errorf("after left at col 0: want 0 (clamped), got %d", got)
+	}
+}
+
+func TestCardAttentionHelpers(t *testing.T) {
+	colorTests := []struct {
+		level int
+		want  lipgloss.Color
+	}{
+		{0, styles.Muted}, {1, styles.AttentionA}, {21, styles.AttentionB},
+		{41, styles.AttentionC}, {61, styles.AttentionD}, {81, styles.AttentionE},
+	}
+	for _, tt := range colorTests {
+		if got := attentionColor(tt.level); got != tt.want {
+			t.Fatalf("attentionColor(%d) = %v, want %v", tt.level, got, tt.want)
+		}
+	}
+
+	labelTests := []struct {
+		level int
+		tier  string
+		want  string
+	}{
+		{0, "critical", "[critical]"}, {20, "", "[low]"}, {33, "", "[low]"},
+		{66, "", "[standard]"}, {80, "", "[critical]"}, {81, "", "[critical]"},
+	}
+	for _, tt := range labelTests {
+		got, _ := attentionTierLabel(tt.level, tt.tier)
+		if got != tt.want {
+			t.Fatalf("attentionTierLabel(%d, %q) = %q, want %q", tt.level, tt.tier, got, tt.want)
+		}
+	}
+
+	if got := attentionDisplay(12); got != "👁 12" {
+		t.Fatalf("attentionDisplay(12) = %q", got)
+	}
+	if got := attentionDisplay(0); got != "👁 --" {
+		t.Fatalf("attentionDisplay(0) = %q", got)
+	}
+}
+
+func TestStatusLabelCoversStatuses(t *testing.T) {
+	statuses := map[models.Status]string{
+		models.StatusInProgress: "IN PROGRESS",
+		models.StatusVerified:   "VERIFIED",
+		models.StatusDone:       "DONE",
+		models.StatusTodo:       "TODO",
+		models.StatusPlanning:   "PLANNING",
+		models.StatusCanceled:   "CANCELED",
+		models.StatusArchived:   "ARCHIVED",
+		models.Status("bogus"):  "UNKNOWN",
+	}
+	for status, want := range statuses {
+		got, _ := statusLabel(status)
+		if got != want {
+			t.Fatalf("statusLabel(%q) = %q, want %q", status, got, want)
+		}
+	}
+}
+
+func TestRenderCardContent(t *testing.T) {
+	ticket := models.Ticket{ID: 42, Title: "A very long title for truncation", Status: models.StatusInProgress, Tier: "critical", MainType: "feature", AttentionLevel: 85}
+	result := stripANSIKanban(renderCard(ticket, 24, true, true, 2))
+	for _, want := range []string{"#42", "[critical]", "feat…", "A very long title", "IN PROGRESS", "👁 85", "█"} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("renderCard missing %q in:\n%s", want, result)
+		}
+	}
+	if lines := strings.Count(result, "\n") + 1; lines != 4 {
+		t.Fatalf("in-progress card line count = %d, want 4", lines)
+	}
+}
+
+func TestCardStringHelpers(t *testing.T) {
+	if got := truncate("abcdef", 4); got != "abc…" {
+		t.Fatalf("truncate = %q", got)
+	}
+	if got := truncate("abcdef", 1); got != "a" {
+		t.Fatalf("truncate width 1 = %q", got)
+	}
+	if got := truncate("abcdef", 0); got != "" {
+		t.Fatalf("truncate width 0 = %q", got)
+	}
+	if got := truncate("abc", 5); got != "abc" {
+		t.Fatalf("truncate short = %q", got)
+	}
+	if got := padRight("ab", 4); got != "ab  " {
+		t.Fatalf("padRight = %q", got)
+	}
+	if got := padRight("abcd", 2); got != "ab" {
+		t.Fatalf("padRight clipped = %q", got)
+	}
+	if got := max(1, 2); got != 2 {
+		t.Fatalf("max(1,2) = %d", got)
 	}
 }

@@ -1,12 +1,14 @@
 package output
 
 import (
+	"bytes"
 	"regexp"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/zalshy/tkt/internal/models"
+	statsPkg "github.com/zalshy/tkt/internal/stats"
 )
 
 // stripANSI removes ANSI escape sequences from s.
@@ -289,5 +291,142 @@ func TestRenderTicket_ColumnAlignment(t *testing.T) {
 			}
 			_ = expected
 		}
+	}
+}
+
+func TestFormatDuration(t *testing.T) {
+	tests := map[time.Duration]string{
+		0:                                  "0s",
+		45 * time.Second:                   "45s",
+		90 * time.Second:                   "1m 30s",
+		25*time.Hour + 2*time.Minute:       "1d 1h 2m",
+		-(2*time.Hour + 30*time.Second):    "-2h 30s",
+		1500 * time.Millisecond:            "2s",
+	}
+	for input, want := range tests {
+		if got := FormatDuration(input); got != want {
+			t.Fatalf("FormatDuration(%v) = %q, want %q", input, got, want)
+		}
+	}
+}
+
+func TestSparkBar(t *testing.T) {
+	tests := map[string]struct {
+		values []int
+		want   string
+	}{
+		"empty": {nil, "(none)"},
+		"zero":  {[]int{0, 0, 0}, "▁▁▁"},
+		"scale": {[]int{0, 5, 10}, "▁▄█"},
+	}
+	for name, tt := range tests {
+		t.Run(name, func(t *testing.T) {
+			if got := SparkBar(tt.values); got != tt.want {
+				t.Fatalf("SparkBar(%v) = %q, want %q", tt.values, got, tt.want)
+			}
+		})
+	}
+}
+
+func TestRenderStats(t *testing.T) {
+	report := sampleStatsReport()
+
+	result := RenderStats(report)
+	for _, want := range []string{
+		"Stats", "Total: 1,234", "Mean cycle time: 2h", "Throughput: 7.5", "Tokens: 2,000",
+		"Cycle Time", "Trend:", "Daily:", "Resource Burn", "Token trend:", "(none): total 12, mean 6", "bugfix: total 7.5, mean 3.8",
+		"Status", "TODO: 3", "Tier", "    (none)", "Type", "(none): 2",
+	} {
+		if !strings.Contains(result, want) {
+			t.Fatalf("RenderStats missing %q in:\n%s", want, result)
+		}
+	}
+}
+
+func TestJSONHelpers(t *testing.T) {
+	now := time.Date(2026, 5, 23, 12, 0, 0, 0, time.FixedZone("offset", -5*60*60))
+	deleted := now.Add(time.Hour)
+	ticket := TicketJSON(models.Ticket{ID: 7, Title: "T", Status: models.StatusDone, Tier: "standard", MainType: "test", AttentionLevel: 52, CreatedBy: "impl", CreatedAt: now, UpdatedAt: now, DeletedAt: &deleted})
+	if ticket.CreatedAt != "2026-05-23T17:00:00Z" || ticket.DeletedAt == nil || *ticket.DeletedAt != "2026-05-23T18:00:00Z" {
+		t.Fatalf("TicketJSON time conversion wrong: %+v", ticket)
+	}
+	if got := TicketsJSON([]models.Ticket{{ID: 1}, {ID: 2}}); len(got) != 2 || got[1].ID != 2 {
+		t.Fatalf("TicketsJSON = %+v", got)
+	}
+
+	from, to := models.StatusTodo, models.StatusPlanning
+	logEntry := LogEntryJSON(models.LogEntry{ID: 1, TicketID: 7, SessionName: "impl", Kind: "transition", Body: "note", FromState: &from, ToState: &to, CreatedAt: now})
+	if logEntry.FromState == nil || *logEntry.FromState != "TODO" || logEntry.ToState == nil || *logEntry.ToState != "PLANNING" {
+		t.Fatalf("LogEntryJSON status ptrs wrong: %+v", logEntry)
+	}
+	if got := LogEntriesJSON([]models.LogEntry{{ID: 3}}); len(got) != 1 || got[0].ID != 3 {
+		t.Fatalf("LogEntriesJSON = %+v", got)
+	}
+
+	usage := UsageEntryJSON(models.UsageEntry{ID: 5, TicketID: 7, SessionName: "impl", Tokens: 10, Tools: 2, DurationMs: 3000, Agent: "implementer", Label: "test", CreatedAt: now, DeletedAt: &deleted})
+	if usage.CreatedAt == "" || usage.DeletedAt == nil || usage.Tokens != 10 {
+		t.Fatalf("UsageEntryJSON wrong: %+v", usage)
+	}
+	if got := UsageEntriesJSON([]models.UsageEntry{{ID: 6}}); len(got) != 1 || got[0].ID != 6 {
+		t.Fatalf("UsageEntriesJSON = %+v", got)
+	}
+
+	var b bytes.Buffer
+	if err := WriteJSON(&b, ticket); err != nil {
+		t.Fatalf("WriteJSON returned error: %v", err)
+	}
+	if !strings.Contains(b.String(), "\n  \"id\": 7") {
+		t.Fatalf("WriteJSON not indented: %s", b.String())
+	}
+}
+
+func TestStatsReportJSON(t *testing.T) {
+	report := sampleStatsReport()
+	got := StatsReportJSON(report)
+	if got.Overview.CycleTime.Mean != "2h" || got.CycleTime.Summary.TotalMs != int64((4*time.Hour).Milliseconds()) {
+		t.Fatalf("StatsReportJSON duration conversion wrong: %+v", got)
+	}
+	if len(got.CycleTime.Trend) != 2 || got.CycleTime.Trend[0].Duration != "1h" {
+		t.Fatalf("StatsReportJSON trend wrong: %+v", got.CycleTime.Trend)
+	}
+	if len(got.Throughput.ByDay) != 2 || got.Throughput.ByDay[0].Time != "2026-05-23T00:00:00Z" {
+		t.Fatalf("StatsReportJSON throughput wrong: %+v", got.Throughput.ByDay)
+	}
+	if len(got.ResourceBurn.Series) != 2 || got.ResourceBurn.Series[1].Value != 2.5 {
+		t.Fatalf("StatsReportJSON series wrong: %+v", got.ResourceBurn.Series)
+	}
+}
+
+func sampleStatsReport() statsPkg.Report {
+	day := time.Date(2026, 5, 23, 0, 0, 0, 0, time.UTC)
+	return statsPkg.Report{
+		Overview: statsPkg.Overview{
+			Total: 1234, Active: 10, Done: 3, Verified: 2, Archived: 1,
+			CycleTime:   statsPkg.DurationSummary{Mean: 2 * time.Hour},
+			LeadTime:    statsPkg.DurationSummary{Mean: 3 * time.Hour},
+			Throughput:  statsPkg.NumericSummary{Total: 7.5},
+			ResourceUse: statsPkg.NumericSummary{Total: 2000},
+		},
+		CycleTime: statsPkg.CycleTime{
+			Summary: statsPkg.DurationSummary{Count: 2, Total: 4 * time.Hour, Mean: 2 * time.Hour, Median: time.Hour},
+			Trend:   []statsPkg.TimeDurationPoint{{Time: day, Duration: time.Hour}, {Time: day.AddDate(0, 0, 1), Duration: 2 * time.Hour}},
+		},
+		Throughput: statsPkg.Throughput{
+			Total: 5,
+			ByDay: []statsPkg.TimeCountPoint{{Time: day, Count: 1}, {Time: day.AddDate(0, 0, 1), Count: 3}},
+			ByWeek: []statsPkg.TimeCountPoint{{Time: day, Count: 0}, {Time: day.AddDate(0, 0, 7), Count: 2}},
+		},
+		ResourceBurn: statsPkg.ResourceBurn{
+			Tokens:   statsPkg.NumericSummary{Count: 2, Total: 1000, Mean: 500, Median: 500},
+			Tools:    statsPkg.NumericSummary{Count: 1, Total: 2, Mean: 2, Median: 2},
+			Duration: statsPkg.DurationSummary{Count: 1, Total: time.Minute, Mean: time.Minute, Median: time.Minute},
+			Series:   []statsPkg.TimeNumericPoint{{Time: day, Value: 0}, {Time: day.AddDate(0, 0, 1), Value: 2.5}},
+			ByType:   []statsPkg.LabeledSummary{{Label: "", Summary: statsPkg.NumericSummary{Total: 12, Mean: 6}}, {Label: "bugfix", Summary: statsPkg.NumericSummary{Total: 7.5, Mean: 3.75}}},
+		},
+		Distribution: statsPkg.Distribution{
+			Status: []statsPkg.CountBucket{{Label: "TODO", Count: 3}},
+			Tier:   nil,
+			Type:   []statsPkg.CountBucket{{Label: "", Count: 2}},
+		},
 	}
 }

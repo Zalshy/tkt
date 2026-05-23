@@ -10,19 +10,19 @@ import (
 	"github.com/zalshy/tkt/internal/tui/styles"
 )
 
-const sparklineBuckets = 120              // one bucket per minute over 2 hours
-const sparklineBucketSec = 7200 / sparklineBuckets // 60 s per bucket
+const sparklineBuckets = 1440                      // one bucket per 5 seconds over 2 hours
+const sparklineBucketSec = 7200 / sparklineBuckets // 5 s per bucket
 
 // ── Data ───────────────────────────────────────────────────────────────────
 
-// sparklineData holds per-minute transition counts for the last 2 hours.
+// sparklineData holds per-5-second transition counts for the last 2 hours.
 // Index 0 = oldest (2 h ago), index len-1 = most recent (now).
 type sparklineData struct {
 	buckets []int
 }
 
 // loadSparkline queries ticket_log for 'transition' events in the last 2 hours
-// grouped into sparklineBuckets one-minute buckets.
+// grouped into sparklineBuckets five-second buckets.
 func loadSparkline(db *sql.DB) (sparklineData, error) {
 	empty := sparklineData{buckets: make([]int, sparklineBuckets)}
 	if db == nil {
@@ -54,9 +54,13 @@ func loadSparkline(db *sql.DB) (sparklineData, error) {
 		if err := rows.Scan(&b, &cnt); err != nil {
 			return empty, fmt.Errorf("sparkline.loadSparkline: scan: %w", err)
 		}
-		if b >= 0 && b < sparklineBuckets {
-			buckets[b] = cnt
+		if b < 0 {
+			continue
 		}
+		if b >= sparklineBuckets {
+			b = sparklineBuckets - 1
+		}
+		buckets[b] = cnt
 	}
 	if err := rows.Err(); err != nil {
 		return empty, fmt.Errorf("sparkline.loadSparkline: rows: %w", err)
@@ -70,7 +74,7 @@ func loadSparkline(db *sql.DB) (sparklineData, error) {
 // (in bucket units) over src. A Gaussian kernel produces symmetric,
 // bell-shaped peaks from clustered events — unlike a box filter which
 // gives trapezoidal (flat-topped) shapes. Boundaries are handled by
-// clamping to the nearest edge sample.
+// zero-padding samples outside the 2-hour window.
 func smoothGaussian(src []int, sigma float64) []float64 {
 	n := len(src)
 	dst := make([]float64, n)
@@ -78,15 +82,11 @@ func smoothGaussian(src []int, sigma float64) []float64 {
 	for i := range src {
 		sum, weight := 0.0, 0.0
 		for j := i - radius; j <= i+radius; j++ {
-			k := j
-			if k < 0 {
-				k = 0
-			} else if k >= n {
-				k = n - 1
-			}
 			d := float64(j - i)
 			w := math.Exp(-d * d / (2 * sigma * sigma))
-			sum += float64(src[k]) * w
+			if j >= 0 && j < n {
+				sum += float64(src[j]) * w
+			}
 			weight += w
 		}
 		if weight > 0 {
@@ -215,13 +215,13 @@ func renderSparkline(d sparklineData, width int) string {
 	// — Lines 2-3: two-row waveform —
 	//
 	// Pipeline:
-	//   1. Float64 moving-average smooth (radius 5 = 11-min window).
+	//   1. Float64 Gaussian smooth (sigma 48 buckets ≈ 4 minutes).
 	//      Float arithmetic is essential — integer division destroys sparse data.
 	//   2. Linear interpolation to exactly `width` display columns.
 	//   3. Scale [0..maxVal] → [0..16] height levels.
 	//   4. Render top row then bottom row, each `width` characters wide.
 
-	smoothed := smoothGaussian(d.buckets, 8)
+	smoothed := smoothGaussian(d.buckets, 48)
 	display := interpF(smoothed, width)
 
 	maxVal := 0.0
