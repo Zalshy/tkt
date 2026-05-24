@@ -10,6 +10,12 @@ tkt is **LLM-CLI agnostic** — it ships an MCP server over stdio so any MCP-com
   <img src="assets/tkt_monitor_readme.gif" alt="tkt monitor" width="100%"/>
 </p>
 
+`tkt monitor side` is available since v0.4.0; use it when you want stats and a better at-a-glance view of project progress.
+
+<p align="center">
+  <img src="assets/tkt_monitor_side.gif" alt="tkt monitor side panel" width="100%"/>
+</p>
+
 ## Install
 
 ```bash
@@ -81,12 +87,6 @@ tkt cleanup                         Expire stale sessions and run maintenance
 tkt monitor                         Read-only TUI dashboard (auto-refreshes every 3s)
 tkt mcp                             Start MCP server (stdio transport)
 ```
-
-`tkt monitor side` shows the same live board as a compact operations view: status mix, attention mix, sessions, ticket activity, token burn, and velocity in one terminal.
-
-<p align="center">
-  <img src="assets/tkt_monitor_side.gif" alt="tkt monitor side panel" width="100%"/>
-</p>
 
 ## Built-in manuals
 
