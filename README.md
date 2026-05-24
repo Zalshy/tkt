@@ -78,9 +78,15 @@ tkt log <id> --tokens N             Record token/tool/duration usage against a t
 tkt stats [--window 7d] [--json]    Show activity-based project statistics
 tkt archive <id>                    Archive a VERIFIED ticket (terminal state)
 tkt cleanup                         Expire stale sessions and run maintenance
-tkt monitor                         Read-only TUI dashboard (auto-refreshes every 5s)
+tkt monitor                         Read-only TUI dashboard (auto-refreshes every 3s)
 tkt mcp                             Start MCP server (stdio transport)
 ```
+
+`tkt monitor side` shows the same live board as a compact operations view: status mix, attention mix, sessions, ticket activity, token burn, and velocity in one terminal.
+
+<p align="center">
+  <img src="assets/monitor-side.gif" alt="tkt monitor side panel" width="100%"/>
+</p>
 
 ## Built-in manuals
 

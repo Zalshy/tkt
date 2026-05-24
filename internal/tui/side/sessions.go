@@ -63,18 +63,18 @@ func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 //
 // Layout — full mode:
 //
-//	       SESSIONS          ← centered title
-//	  architect   N          ← counts from ALL events
-//	  implementer N
-//	  ─────────────────      ← divider
-//	  alice-arch  arch  14:28
-//	  bob         impl  09:55
+//	     SESSIONS          ← centered title
+//	architect   N          ← counts from ALL events
+//	implementer N
+//	─────────────────      ← divider
+//	alice-arch  arch  14:28
+//	bob         impl  09:55
 //
 // Layout — compact mode (maxVisible == 0):
 //
-//	       SESSIONS
-//	  architect   N
-//	  implementer N
+//	     SESSIONS
+//	architect   N
+//	implementer N
 func renderSessions(events []sessionEvent, width, maxVisible int) string {
 	compact := maxVisible <= 0
 
@@ -155,21 +155,17 @@ func renderSessions(events []sessionEvent, width, maxVisible int) string {
 		nameW = 8
 	}
 
-	highlightStyle := lipgloss.NewStyle().
-		Background(styles.Warning).
-		Foreground(styles.BgDeep)
-
 	for _, e := range displayEvents {
-		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
+		highlightStyle, isHighlighted := activityHighlightStyle(e.arrivedAt)
 
 		name := e.name
 		if len(name) > nameW {
 			name = name[:nameW-1] + "…"
 		}
 
-		if isNew {
-			line := fmt.Sprintf("%-*s %-4s %s",
-				nameW, name, roleAbbrev(e.role), e.startedAt.Format("15:04"))
+		if isHighlighted {
+			line := fmt.Sprintf("%-*s%-*s%s",
+				nameW, name, roleColW, roleAbbrev(e.role), e.startedAt.Format("15:04"))
 			sb.WriteString(highlightStyle.Render(line))
 		} else {
 			roleLabel, roleColor := roleStyle(e.role)

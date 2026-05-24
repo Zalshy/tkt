@@ -169,30 +169,46 @@ func TestRenderTokenBurnCompact(t *testing.T) {
 	}
 }
 
-// TestRenderSessionsHighlight verifies that an event with a recent arrivedAt
-// produces different output than an event with a zero arrivedAt.
+// TestRenderSessionsHighlightFade verifies that an event highlight lingers for
+// about four seconds, fades in one-second steps, then returns to normal output.
 // Forces TrueColor profile so lipgloss emits ANSI codes even outside a TTY.
-func TestRenderSessionsHighlight(t *testing.T) {
+func TestRenderSessionsHighlightFade(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
+	now := time.Now()
 	base := sessionEvent{
 		name:      "arch-session",
 		role:      "architect",
-		startedAt: time.Now().Add(-2 * time.Minute),
+		startedAt: now.Add(-2 * time.Minute),
 	}
 
-	// Event with recent arrivedAt — should trigger highlight.
-	newEvent := base
-	newEvent.arrivedAt = time.Now()
-
-	// Event with zero arrivedAt — no highlight.
 	oldEvent := base
-
-	outNew := renderSessions([]sessionEvent{newEvent}, 80, 10)
 	outOld := renderSessions([]sessionEvent{oldEvent}, 80, 10)
 
-	if outNew == outOld {
-		t.Errorf("expected different output for new vs old session, but both rendered identically")
+	var previous string
+	for _, age := range []time.Duration{
+		500 * time.Millisecond,
+		1500 * time.Millisecond,
+		2500 * time.Millisecond,
+		3500 * time.Millisecond,
+	} {
+		event := base
+		event.arrivedAt = time.Now().Add(-age)
+		out := renderSessions([]sessionEvent{event}, 80, 10)
+		if out == outOld {
+			t.Fatalf("expected session highlight at age %s to differ from normal output", age)
+		}
+		if previous != "" && out == previous {
+			t.Fatalf("expected session highlight at age %s to fade to a different style", age)
+		}
+		previous = out
+	}
+
+	expiredEvent := base
+	expiredEvent.arrivedAt = time.Now().Add(-4500 * time.Millisecond)
+	outExpired := renderSessions([]sessionEvent{expiredEvent}, 80, 10)
+	if outExpired != outOld {
+		t.Errorf("expected session highlight after expiry to match normal output")
 	}
 }

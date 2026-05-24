@@ -13,7 +13,7 @@ For full details run `tkt docs monitor`.
 
 ## Minimal mode (default)
 
-A read-only 3-column kanban (TODO / PLANNING / DONE) that auto-refreshes every 5 seconds.
+A read-only 3-column kanban (TODO / PLANNING / DONE) that auto-refreshes every 3 seconds.
 Navigate columns and cards with the arrow keys, open a ticket with `enter`, search with `/`.
 
 ## Side mode

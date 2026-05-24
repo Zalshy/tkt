@@ -21,6 +21,8 @@ func runNewInDir(t *testing.T, dir string, args []string, setupFlags func()) (st
 	savedDescStdin := newDescriptionStdin
 	savedAfter := newAfter
 	savedTier := newTier
+	savedMainType := newMainType
+	savedAttention := newAttention
 	defer func() {
 		rootDir = savedRootDir
 		newDescription = savedDesc
@@ -28,6 +30,8 @@ func runNewInDir(t *testing.T, dir string, args []string, setupFlags func()) (st
 		newDescriptionStdin = savedDescStdin
 		newAfter = savedAfter
 		newTier = savedTier
+		newMainType = savedMainType
+		newAttention = savedAttention
 		newCmd.SetOut(nil)
 		newCmd.SetIn(nil)
 	}()
@@ -38,6 +42,8 @@ func runNewInDir(t *testing.T, dir string, args []string, setupFlags func()) (st
 	newDescriptionStdin = false
 	newAfter = ""
 	newTier = "standard"
+	newMainType = ""
+	newAttention = 0
 
 	if setupFlags != nil {
 		setupFlags()
