@@ -7,7 +7,7 @@ A project-local CLI ticket system with role-based session isolation and a plan-f
 tkt is **LLM-CLI agnostic** — it ships an MCP server over stdio so any MCP-compatible tool (Claude Code, Claude Desktop, Cursor, Zed, or your own agent) can drive it without glue code.
 
 <p align="center">
-  <img src="assets/readme_example.gif" alt="tkt monitor" width="100%"/>
+  <img src="assets/tkt_monitor_readme.gif" alt="tkt monitor" width="100%"/>
 </p>
 
 ## Install
@@ -85,7 +85,7 @@ tkt mcp                             Start MCP server (stdio transport)
 `tkt monitor side` shows the same live board as a compact operations view: status mix, attention mix, sessions, ticket activity, token burn, and velocity in one terminal.
 
 <p align="center">
-  <img src="assets/monitor-side.gif" alt="tkt monitor side panel" width="100%"/>
+  <img src="assets/tkt_monitor_side.gif" alt="tkt monitor side panel" width="100%"/>
 </p>
 
 ## Built-in manuals
