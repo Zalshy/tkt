@@ -23,3 +23,4 @@ AGENTS.md
 .codex
 .pi/
 scripts/visual-test.sh
+scripts/check-dep-age.sh
