@@ -18,7 +18,7 @@ type sessionEvent struct {
 	arrivedAt time.Time // set when first detected as new on a poll cycle; zero for pre-existing
 }
 
-// loadSessions queries the 5 most recent active sessions (excluding monitor).
+// loadSessions queries all active sessions (excluding monitor).
 // Returns empty results (not an error) when db is nil.
 func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 	if db == nil {
@@ -32,7 +32,6 @@ func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 		WHERE s.expired_at IS NULL
 		  AND r.base_role != 'monitor'
 		ORDER BY s.created_at DESC
-		LIMIT 5
 	`)
 	if err != nil {
 		return nil, fmt.Errorf("sessions.loadSessions: query: %w", err)
@@ -64,18 +63,18 @@ func loadSessions(db *sql.DB) ([]sessionEvent, error) {
 //
 // Layout — full mode:
 //
-//	       SESSIONS          ← centered title
-//	  architect   N          ← counts from ALL events
-//	  implementer N
-//	  ─────────────────      ← divider
-//	  alice-arch  arch  14:28
-//	  bob         impl  09:55
+//	     SESSIONS          ← centered title
+//	architect   N          ← counts from ALL events
+//	implementer N
+//	─────────────────      ← divider
+//	alice-arch  arch  14:28
+//	bob         impl  09:55
 //
 // Layout — compact mode (maxVisible == 0):
 //
-//	       SESSIONS
-//	  architect   N
-//	  implementer N
+//	     SESSIONS
+//	architect   N
+//	implementer N
 func renderSessions(events []sessionEvent, width, maxVisible int) string {
 	compact := maxVisible <= 0
 
@@ -156,21 +155,17 @@ func renderSessions(events []sessionEvent, width, maxVisible int) string {
 		nameW = 8
 	}
 
-	highlightStyle := lipgloss.NewStyle().
-		Background(styles.Warning).
-		Foreground(styles.BgDeep)
-
 	for _, e := range displayEvents {
-		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
+		highlightStyle, isHighlighted := activityHighlightStyle(e.arrivedAt)
 
 		name := e.name
 		if len(name) > nameW {
 			name = name[:nameW-1] + "…"
 		}
 
-		if isNew {
-			line := fmt.Sprintf("%-*s %-4s %s",
-				nameW, name, roleAbbrev(e.role), e.startedAt.Format("15:04"))
+		if isHighlighted {
+			line := fmt.Sprintf("%-*s%-*s%s",
+				nameW, name, roleColW, roleAbbrev(e.role), e.startedAt.Format("15:04"))
 			sb.WriteString(highlightStyle.Render(line))
 		} else {
 			roleLabel, roleColor := roleStyle(e.role)

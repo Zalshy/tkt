@@ -6,6 +6,10 @@ import "strings"
 // Use this constant in every session.ErrNoSession branch — do not write bespoke messages.
 const msgNoSession = "no active session. Run: tkt session --role <architect|implementer>"
 
+// msgExpiredSession is the standard error message when the current session row exists
+// but has expired. Tell users how to recover and retry the command they attempted.
+const msgExpiredSession = "session has expired after inactivity. Run: tkt session --role <architect|implementer>, then retry this command"
+
 func withManualHint(msg string) string {
 	if strings.Contains(msg, "See: tkt man") || strings.Contains(msg, "Run: tkt man") {
 		return msg

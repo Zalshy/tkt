@@ -63,21 +63,21 @@ type sparklineLoadedMsg struct {
 
 // RootModel is the top-level BubbleTea model for the side monitor mode.
 type RootModel struct {
-	db           *sql.DB
-	cfg          *config.ProjectConfig
-	root         string
-	width        int
-	height       int
-	pollInterval time.Duration
-	clock        clockModel
-	stats        statsData
-	statsEpoch   int
-	feed         []feedEntry
-	feedEpoch    int
-	feedLoaded   bool // true after the first successful feed load (baseline)
-	sessionsData []sessionEvent
-	sessEpoch    int
-	sessLoaded   bool // true after the first successful sessions load (baseline)
+	db             *sql.DB
+	cfg            *config.ProjectConfig
+	root           string
+	width          int
+	height         int
+	pollInterval   time.Duration
+	clock          clockModel
+	stats          statsData
+	statsEpoch     int
+	feed           []feedEntry
+	feedEpoch      int
+	feedLoaded     bool // true after the first successful feed load (baseline)
+	sessionsData   []sessionEvent
+	sessEpoch      int
+	sessLoaded     bool // true after the first successful sessions load (baseline)
 	tokenBurn      tokenBurnData
 	burnEpoch      int
 	sparkline      sparklineData
@@ -89,21 +89,21 @@ type RootModel struct {
 }
 
 // NewRootModel constructs a RootModel. It reads cfg.MonitorInterval for the
-// poll interval (default 5s). cfg may be nil.
+// poll interval (default 3s). cfg may be nil.
 func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
 	var interval time.Duration
 	if cfg != nil {
 		interval = time.Duration(cfg.MonitorInterval) * time.Second
 	}
 	if interval <= 0 {
-		interval = 5 * time.Second
+		interval = 3 * time.Second
 	}
 	return RootModel{
-		db:           db,
-		cfg:          cfg,
-		root:         root,
-		pollInterval: interval,
-		clock:        newClockModel(),
+		db:            db,
+		cfg:           cfg,
+		root:          root,
+		pollInterval:  interval,
+		clock:         newClockModel(),
 		cometDir:      1,
 		cometDirBlend: 1.0, // starts moving left→right
 	}
@@ -169,6 +169,52 @@ func loadSparklineCmd(db *sql.DB, epoch int) tea.Cmd {
 	}
 }
 
+func feedEntryKey(e feedEntry) string {
+	return fmt.Sprintf("%d\x00%s\x00%s\x00%t\x00%s",
+		e.ticketID,
+		e.sessionName,
+		e.toState,
+		e.isCreate,
+		e.createdAt.Format(time.RFC3339Nano),
+	)
+}
+
+func preserveFeedArrivals(previous, next []feedEntry, markNew bool) []feedEntry {
+	arrivals := make(map[string]time.Time, len(previous))
+	for _, e := range previous {
+		arrivals[feedEntryKey(e)] = e.arrivedAt
+	}
+
+	now := time.Now()
+	for i := range next {
+		arrivedAt, exists := arrivals[feedEntryKey(next[i])]
+		if exists {
+			next[i].arrivedAt = arrivedAt
+		} else if markNew {
+			next[i].arrivedAt = now
+		}
+	}
+	return next
+}
+
+func preserveSessionArrivals(previous, next []sessionEvent, markNew bool) []sessionEvent {
+	arrivals := make(map[string]time.Time, len(previous))
+	for _, e := range previous {
+		arrivals[e.name] = e.arrivedAt
+	}
+
+	now := time.Now()
+	for i := range next {
+		arrivedAt, exists := arrivals[next[i].name]
+		if exists {
+			next[i].arrivedAt = arrivedAt
+		} else if markNew {
+			next[i].arrivedAt = now
+		}
+	}
+	return next
+}
+
 // Init satisfies tea.Model. Starts the poll tick, clock tick, and initial data loads.
 // Note: Init uses a value receiver — mutations inside Init are discarded.
 func (m RootModel) Init() tea.Cmd {
@@ -226,42 +272,18 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if msg.epoch != m.feedEpoch {
 			return m, tea.Batch(cmds...)
 		}
-		if !m.feedLoaded {
-			m.feedLoaded = true
-		} else {
-			var latest time.Time
-			for _, e := range m.feed {
-				if e.createdAt.After(latest) {
-					latest = e.createdAt
-				}
-			}
-			for i := range msg.entries {
-				if msg.entries[i].createdAt.After(latest) {
-					msg.entries[i].arrivedAt = time.Now()
-				}
-			}
-		}
-		m.feed = msg.entries
+		markNew := m.feedLoaded
+		m.feed = preserveFeedArrivals(m.feed, msg.entries, markNew)
+		m.feedLoaded = true
 		return m, tea.Batch(cmds...)
 
 	case sessionsLoadedMsg:
 		if msg.epoch != m.sessEpoch {
 			return m, tea.Batch(cmds...)
 		}
-		if !m.sessLoaded {
-			m.sessLoaded = true
-		} else {
-			existing := make(map[string]bool, len(m.sessionsData))
-			for _, e := range m.sessionsData {
-				existing[e.name] = true
-			}
-			for i := range msg.events {
-				if !existing[msg.events[i].name] {
-					msg.events[i].arrivedAt = time.Now()
-				}
-			}
-		}
-		m.sessionsData = msg.events
+		markNew := m.sessLoaded
+		m.sessionsData = preserveSessionArrivals(m.sessionsData, msg.events, markNew)
+		m.sessLoaded = true
 		return m, tea.Batch(cmds...)
 
 	case tokenBurnLoadedMsg:

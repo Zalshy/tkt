@@ -95,7 +95,7 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 		interval = time.Duration(cfg.MonitorInterval) * time.Second
 	}
 	if interval <= 0 {
-		interval = 5 * time.Second
+		interval = 3 * time.Second
 	}
 	return RootModel{
 		db:           db,

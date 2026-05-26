@@ -79,6 +79,9 @@ func runContextAdd(cmd *cobra.Command, args []string) error {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
 		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
+		}
 		return fmt.Errorf("context add: load session: %w", err)
 	}
 
@@ -162,6 +165,9 @@ func runContextUpdate(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
 			return fmt.Errorf(msgNoSession)
+		}
+		if errors.Is(err, session.ErrExpiredSession) {
+			return fmt.Errorf(msgExpiredSession)
 		}
 		return fmt.Errorf("context update: load session: %w", err)
 	}

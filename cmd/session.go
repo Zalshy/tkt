@@ -3,13 +3,10 @@ package cmd
 import (
 	"errors"
 	"fmt"
-	"os"
-	"strings"
 
 	"github.com/spf13/cobra"
 	"github.com/zalshy/tkt/internal/db"
 	"github.com/zalshy/tkt/internal/models"
-	"github.com/zalshy/tkt/internal/project"
 	"github.com/zalshy/tkt/internal/role"
 	"github.com/zalshy/tkt/internal/session"
 )
@@ -147,14 +144,7 @@ func runSessionShow(cmd *cobra.Command) error {
 			return fmt.Errorf("")
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			// LoadActive returns nil for the session on expiry, so re-read the file
-			// to get the stored ULID for the error message.
-			data, readErr := os.ReadFile(project.SessionFile(root))
-			id := "unknown"
-			if readErr == nil {
-				id = strings.TrimSpace(string(data))
-			}
-			return fmt.Errorf("session %s has expired.\nRun: tkt session --role architect\n  or: tkt session --role implementer", id)
+			return fmt.Errorf(msgExpiredSession)
 		}
 		return fmt.Errorf("session: load: %w", err)
 	}

@@ -15,8 +15,8 @@ type feedEntry struct {
 	ticketID    int64
 	sessionName string
 	toState     string
-	isCreate    bool      // true for ticket-created events sourced from tickets table
-	isForced    bool      // true when the transition was a forced op
+	isCreate    bool // true for ticket-created events sourced from tickets table
+	isForced    bool // true when the transition was a forced op
 	createdAt   time.Time
 	arrivedAt   time.Time // set when first detected as new on a poll cycle; zero for pre-existing
 }
@@ -88,6 +88,38 @@ func relAge(t time.Time) string {
 	}
 }
 
+const activityHighlightDuration = 4 * time.Second
+
+var activityHighlightBackgrounds = []lipgloss.Color{
+	lipgloss.Color("#B85F86"),
+	lipgloss.Color("#965270"),
+	lipgloss.Color("#74445B"),
+	lipgloss.Color("#553743"),
+}
+
+func activityHighlightStyle(arrivedAt time.Time) (lipgloss.Style, bool) {
+	if arrivedAt.IsZero() {
+		return lipgloss.Style{}, false
+	}
+
+	age := time.Since(arrivedAt)
+	if age < 0 {
+		age = 0
+	}
+	if age >= activityHighlightDuration {
+		return lipgloss.Style{}, false
+	}
+
+	step := int(age / time.Second)
+	if step >= len(activityHighlightBackgrounds) {
+		step = len(activityHighlightBackgrounds) - 1
+	}
+
+	return lipgloss.NewStyle().
+		Background(activityHighlightBackgrounds[step]).
+		Foreground(lipgloss.Color("#F2D6E3")), true
+}
+
 // renderFeed renders the TICKET ACTIVITY section.
 // maxEntries caps how many rows are shown so the section fits the available height.
 // Pass 0 or negative to show all entries.
@@ -113,9 +145,6 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 		entries = entries[:maxEntries]
 	}
 
-	highlightStyle := lipgloss.NewStyle().
-		Background(styles.Warning).
-		Foreground(styles.BgDeep)
 	restStyle := lipgloss.NewStyle().Foreground(styles.Secondary)
 	warnStyle := lipgloss.NewStyle().Foreground(styles.Warning)
 
@@ -128,7 +157,7 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 	sessionW := max(width-fixedW, 8)
 
 	for _, e := range entries {
-		isNew := !e.arrivedAt.IsZero() && time.Since(e.arrivedAt) < 1500*time.Millisecond
+		highlightStyle, isHighlighted := activityHighlightStyle(e.arrivedAt)
 
 		session := e.sessionName
 		if len(session) > sessionW {
@@ -151,7 +180,7 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 
 		rest := fmt.Sprintf(" · %-6s → %-*s %*s", ticket, stateW, state, ageW, age)
 
-		if isNew {
+		if isHighlighted {
 			plain := fmt.Sprintf("%-*s%s", sessionW, session, rest)
 			sb.WriteString(highlightStyle.Render(plain))
 		} else if e.isForced {

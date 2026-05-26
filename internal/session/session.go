@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	dbpkg "github.com/zalshy/tkt/internal/db"
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/project"
 	rolepkg "github.com/zalshy/tkt/internal/role"
@@ -88,6 +89,10 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 // name is the user-supplied session name (may be empty for random word). If non-empty,
 // it must already have been validated by ValidateName.
 func Create(role models.Role, name string, db *sql.DB, root string) (*models.Session, error) {
+	if _, err := dbpkg.CleanupStaleSessions(db, false); err != nil {
+		return nil, fmt.Errorf("Create: cleanup stale sessions: %w", err)
+	}
+
 	// Validate the role is registered before inserting.
 	exists, err := rolepkg.Exists(string(role), db)
 	if err != nil {
@@ -140,6 +145,10 @@ func Create(role models.Role, name string, db *sql.DB, root string) (*models.Ses
 // WITHOUT writing to the .tkt/session file. Used by tkt monitor to own its
 // own session without displacing any user session.
 func CreateSystem(role models.Role, db *sql.DB) (*models.Session, error) {
+	if _, err := dbpkg.CleanupStaleSessions(db, false); err != nil {
+		return nil, fmt.Errorf("CreateSystem: cleanup stale sessions: %w", err)
+	}
+
 	// Validate the role is registered before inserting.
 	exists, err := rolepkg.Exists(string(role), db)
 	if err != nil {
@@ -182,9 +191,8 @@ func candidateNames(base string) ([]string, error) {
 		return nil, err
 	}
 	return []string{
-		base,
 		base + "-" + firstHex,
-		base + "-" + firstHex + "-" + secondHex,
+		base + "-" + secondHex,
 	}, nil
 }
 

@@ -38,32 +38,60 @@ func TestRenderFeedEntries(t *testing.T) {
 	}
 }
 
-// TestRenderFeedHighlight verifies that an entry with a recent arrivedAt
-// produces different output than an entry with a zero arrivedAt.
+// TestRenderFeedHighlightFade verifies that an entry highlight lingers for
+// about four seconds, fades in one-second steps, then returns to normal output.
 // Forces TrueColor profile so lipgloss emits ANSI codes even outside a TTY.
-func TestRenderFeedHighlight(t *testing.T) {
+func TestActivityHighlightPaletteStaysMutedPink(t *testing.T) {
+	want := []string{"#B85F86", "#965270", "#74445B", "#553743"}
+	if len(activityHighlightBackgrounds) != len(want) {
+		t.Fatalf("activity highlight color count = %d, want %d", len(activityHighlightBackgrounds), len(want))
+	}
+	for i, wantColor := range want {
+		if got := string(activityHighlightBackgrounds[i]); got != wantColor {
+			t.Fatalf("activity highlight color[%d] = %s, want muted pink %s", i, got, wantColor)
+		}
+	}
+}
+
+func TestRenderFeedHighlightFade(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
+	now := time.Now()
 	base := feedEntry{
 		ticketID:    7,
 		sessionName: "arch-session",
 		toState:     "DONE",
-		createdAt:   time.Now().Add(-5 * time.Second),
+		createdAt:   now.Add(-5 * time.Second),
 	}
 
-	// Entry with recent arrivedAt — should trigger highlight.
-	newEntry := base
-	newEntry.arrivedAt = time.Now()
-
-	// Entry with zero arrivedAt — no highlight.
 	oldEntry := base
-
-	outNew := renderFeed([]feedEntry{newEntry}, 80, 10)
 	outOld := renderFeed([]feedEntry{oldEntry}, 80, 10)
 
-	if outNew == outOld {
-		t.Errorf("expected different output for new vs old entry, but both rendered identically")
+	var previous string
+	for _, age := range []time.Duration{
+		500 * time.Millisecond,
+		1500 * time.Millisecond,
+		2500 * time.Millisecond,
+		3500 * time.Millisecond,
+	} {
+		entry := base
+		entry.arrivedAt = time.Now().Add(-age)
+		out := renderFeed([]feedEntry{entry}, 80, 10)
+		if out == outOld {
+			t.Fatalf("expected feed highlight at age %s to differ from normal output", age)
+		}
+		if previous != "" && out == previous {
+			t.Fatalf("expected feed highlight at age %s to fade to a different style", age)
+		}
+		previous = out
+	}
+
+	expiredEntry := base
+	expiredEntry.arrivedAt = time.Now().Add(-4500 * time.Millisecond)
+	outExpired := renderFeed([]feedEntry{expiredEntry}, 80, 10)
+	if outExpired != outOld {
+		t.Errorf("expected feed highlight after expiry to match normal output")
 	}
 }
 

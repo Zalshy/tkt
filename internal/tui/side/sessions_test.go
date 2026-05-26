@@ -1,12 +1,16 @@
 package side
 
 import (
+	"fmt"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/muesli/termenv"
+	"github.com/zalshy/tkt/internal/db"
 )
 
 // TestRenderSessionsEmpty verifies that renderSessions with nil events does not
@@ -71,14 +75,78 @@ func TestRenderSessionsCompact(t *testing.T) {
 // events even when maxVisible caps the display rows.
 func TestRenderSessionsCountsFromAllEvents(t *testing.T) {
 	events := []sessionEvent{
-		{name: "arch-1", role: "architect", startedAt: time.Now().Add(-5 * time.Minute)},
-		{name: "arch-2", role: "architect", startedAt: time.Now().Add(-4 * time.Minute)},
+		{name: "arch-1", role: "architect", startedAt: time.Now().Add(-6 * time.Minute)},
+		{name: "arch-2", role: "architect", startedAt: time.Now().Add(-5 * time.Minute)},
+		{name: "arch-3", role: "architect", startedAt: time.Now().Add(-4 * time.Minute)},
 		{name: "impl-1", role: "implementer", startedAt: time.Now().Add(-3 * time.Minute)},
+		{name: "impl-2", role: "implementer", startedAt: time.Now().Add(-2 * time.Minute)},
+		{name: "impl-3", role: "implementer", startedAt: time.Now().Add(-1 * time.Minute)},
 	}
-	// maxVisible=1 means only 1 row shown, but counts must still be 2 arch + 1 impl.
+	// maxVisible=1 means only 1 row shown, but counts must still be 3 arch + 3 impl.
 	out := renderSessions(events, 80, 1)
-	if !strings.Contains(out, "2") {
-		t.Errorf("expected architect count '2' in output even with maxVisible=1, got: %q", out)
+	if !strings.Contains(out, "architect  3") {
+		t.Errorf("expected architect count '3' in output even with maxVisible=1, got: %q", out)
+	}
+	if !strings.Contains(out, "implementer  3") {
+		t.Errorf("expected implementer count '3' in output even with maxVisible=1, got: %q", out)
+	}
+	if strings.Contains(out, "arch-2") || strings.Contains(out, "impl-3") {
+		t.Errorf("expected maxVisible=1 to hide rows after first event, got: %q", out)
+	}
+}
+
+func TestLoadSessionsReturnsAllActiveNonMonitorSessions(t *testing.T) {
+	root := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(root, ".tkt"), 0o755); err != nil {
+		t.Fatalf("mkdir .tkt: %v", err)
+	}
+	database, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	t.Cleanup(func() { database.Close() })
+
+	for i := 0; i < 7; i++ {
+		role := "implementer"
+		if i%2 == 0 {
+			role = "architect"
+		}
+		_, err := database.Exec(
+			`INSERT INTO sessions (id, role, name, created_at, last_active)
+			 VALUES (?, ?, ?, datetime('now', ?), datetime('now'))`,
+			fmt.Sprintf("sess-%d", i), role, fmt.Sprintf("session-%d", i), fmt.Sprintf("-%d minutes", i),
+		)
+		if err != nil {
+			t.Fatalf("insert session %d: %v", i, err)
+		}
+	}
+
+	_, err = database.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active)
+		 VALUES ('monitor-sess', 'monitor', 'monitor-session', datetime('now'), datetime('now'))`,
+	)
+	if err != nil {
+		t.Fatalf("insert monitor session: %v", err)
+	}
+	_, err = database.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
+		 VALUES ('expired-sess', 'implementer', 'expired-session', datetime('now'), datetime('now'), datetime('now'))`,
+	)
+	if err != nil {
+		t.Fatalf("insert expired session: %v", err)
+	}
+
+	events, err := loadSessions(database)
+	if err != nil {
+		t.Fatalf("loadSessions: %v", err)
+	}
+	if len(events) != 7 {
+		t.Fatalf("loadSessions returned %d events, want 7", len(events))
+	}
+	for _, e := range events {
+		if e.role == "monitor" || e.name == "monitor-session" || e.name == "expired-session" {
+			t.Fatalf("loadSessions returned excluded session: %+v", e)
+		}
 	}
 }
 
@@ -101,30 +169,46 @@ func TestRenderTokenBurnCompact(t *testing.T) {
 	}
 }
 
-// TestRenderSessionsHighlight verifies that an event with a recent arrivedAt
-// produces different output than an event with a zero arrivedAt.
+// TestRenderSessionsHighlightFade verifies that an event highlight lingers for
+// about four seconds, fades in one-second steps, then returns to normal output.
 // Forces TrueColor profile so lipgloss emits ANSI codes even outside a TTY.
-func TestRenderSessionsHighlight(t *testing.T) {
+func TestRenderSessionsHighlightFade(t *testing.T) {
 	lipgloss.SetColorProfile(termenv.TrueColor)
 	t.Cleanup(func() { lipgloss.SetColorProfile(termenv.Ascii) })
 
+	now := time.Now()
 	base := sessionEvent{
 		name:      "arch-session",
 		role:      "architect",
-		startedAt: time.Now().Add(-2 * time.Minute),
+		startedAt: now.Add(-2 * time.Minute),
 	}
 
-	// Event with recent arrivedAt — should trigger highlight.
-	newEvent := base
-	newEvent.arrivedAt = time.Now()
-
-	// Event with zero arrivedAt — no highlight.
 	oldEvent := base
-
-	outNew := renderSessions([]sessionEvent{newEvent}, 80, 10)
 	outOld := renderSessions([]sessionEvent{oldEvent}, 80, 10)
 
-	if outNew == outOld {
-		t.Errorf("expected different output for new vs old session, but both rendered identically")
+	var previous string
+	for _, age := range []time.Duration{
+		500 * time.Millisecond,
+		1500 * time.Millisecond,
+		2500 * time.Millisecond,
+		3500 * time.Millisecond,
+	} {
+		event := base
+		event.arrivedAt = time.Now().Add(-age)
+		out := renderSessions([]sessionEvent{event}, 80, 10)
+		if out == outOld {
+			t.Fatalf("expected session highlight at age %s to differ from normal output", age)
+		}
+		if previous != "" && out == previous {
+			t.Fatalf("expected session highlight at age %s to fade to a different style", age)
+		}
+		previous = out
+	}
+
+	expiredEvent := base
+	expiredEvent.arrivedAt = time.Now().Add(-4500 * time.Millisecond)
+	outExpired := renderSessions([]sessionEvent{expiredEvent}, 80, 10)
+	if outExpired != outOld {
+		t.Errorf("expected session highlight after expiry to match normal output")
 	}
 }

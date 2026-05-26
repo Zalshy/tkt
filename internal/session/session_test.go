@@ -1,9 +1,11 @@
 package session
 
 import (
+	"database/sql"
 	"errors"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 
@@ -77,6 +79,25 @@ func TestGenerateName_NamePassthrough(t *testing.T) {
 func TestGenerateULID_NonEmpty(t *testing.T) {
 	if got := GenerateULID(); len(got) != 26 {
 		t.Fatalf("GenerateULID() len = %d, want 26", len(got))
+	}
+}
+
+func TestCandidateNames_AlwaysSingleHexSuffix(t *testing.T) {
+	candidates, err := candidateNames("cedar")
+	if err != nil {
+		t.Fatalf("candidateNames: %v", err)
+	}
+	if len(candidates) != 2 {
+		t.Fatalf("len(candidateNames) = %d, want 2", len(candidates))
+	}
+	pattern := regexp.MustCompile(`^cedar-[0-9a-f]{4}$`)
+	for _, candidate := range candidates {
+		if !pattern.MatchString(candidate) {
+			t.Fatalf("candidate %q does not match single-suffix format", candidate)
+		}
+		if strings.Count(candidate, "-") != 1 {
+			t.Fatalf("candidate %q has bare or double-suffix shape", candidate)
+		}
 	}
 }
 
@@ -192,6 +213,21 @@ func TestCreate_NameDiffersFromID(t *testing.T) {
 	}
 }
 
+func TestCreate_AutoNameHasSingleHexSuffix(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	s, err := Create(models.RoleArchitect, "", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	assertGeneratedSessionName(t, s.Name)
+}
+
 func TestCreate_Roundtrip(t *testing.T) {
 	root := setupDB(t)
 	sqlDB, err := db.Open(root)
@@ -222,6 +258,48 @@ func TestCreate_Roundtrip(t *testing.T) {
 	}
 	if len(data) != len(s.ID) {
 		t.Errorf("session file byte length %d != session ID length %d", len(data), len(s.ID))
+	}
+}
+
+func TestCreate_ExpiresStaleSessions(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	_, err = sqlDB.Exec(
+		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-5 hours'))`,
+		"stale-session", "implementer", "stale-session",
+	)
+	if err != nil {
+		t.Fatalf("insert stale session: %v", err)
+	}
+	_, err = sqlDB.Exec(
+		`INSERT INTO sessions (id, role, name, last_active) VALUES (?, ?, ?, datetime('now', '-3 hours'))`,
+		"fresh-session", "implementer", "fresh-session",
+	)
+	if err != nil {
+		t.Fatalf("insert fresh session: %v", err)
+	}
+
+	if _, err := Create(models.RoleArchitect, "new-session", sqlDB, root); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	var staleExpired, freshExpired sql.NullString
+	if err := sqlDB.QueryRow(`SELECT expired_at FROM sessions WHERE id = ?`, "stale-session").Scan(&staleExpired); err != nil {
+		t.Fatalf("select stale expired_at: %v", err)
+	}
+	if err := sqlDB.QueryRow(`SELECT expired_at FROM sessions WHERE id = ?`, "fresh-session").Scan(&freshExpired); err != nil {
+		t.Fatalf("select fresh expired_at: %v", err)
+	}
+	if !staleExpired.Valid {
+		t.Error("expected stale session to be expired during Create")
+	}
+	if freshExpired.Valid {
+		t.Errorf("expected fresh session to remain active, got expired_at=%q", freshExpired.String)
 	}
 }
 
@@ -419,6 +497,71 @@ func TestCreateSystem_InsertsRowNoFile(t *testing.T) {
 	// EffectiveRole must be RoleMonitor (resolved via ResolveBase).
 	if s.EffectiveRole != models.RoleMonitor {
 		t.Errorf("EffectiveRole = %q, want %q", s.EffectiveRole, models.RoleMonitor)
+	}
+	assertGeneratedSessionName(t, s.Name)
+}
+
+func TestInsertWithNameFallback_RetriesOneCollision(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	if _, err := sqlDB.Exec(`INSERT INTO sessions (id, role, name) VALUES ('existing-id', 'architect', 'cedar-1111')`); err != nil {
+		t.Fatalf("insert existing session: %v", err)
+	}
+
+	s := models.Session{ID: "new-id", Role: models.RoleArchitect, EffectiveRole: models.RoleArchitect}
+	if err := insertWithNameFallback(&s, []string{"cedar-1111", "cedar-2222"}, sqlDB, "test"); err != nil {
+		t.Fatalf("insertWithNameFallback: %v", err)
+	}
+	if s.Name != "cedar-2222" {
+		t.Fatalf("s.Name = %q, want second candidate", s.Name)
+	}
+
+	var count int
+	if err := sqlDB.QueryRow(`SELECT COUNT(*) FROM sessions WHERE id = ? AND name = ?`, "new-id", "cedar-2222").Scan(&count); err != nil {
+		t.Fatalf("query inserted session: %v", err)
+	}
+	if count != 1 {
+		t.Fatalf("inserted row count = %d, want 1", count)
+	}
+}
+
+func TestInsertWithNameFallback_TwoCollisionsReturnsError(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	for _, row := range []struct{ id, name string }{{"existing-a", "cedar-1111"}, {"existing-b", "cedar-2222"}} {
+		if _, err := sqlDB.Exec(`INSERT INTO sessions (id, role, name) VALUES (?, 'architect', ?)`, row.id, row.name); err != nil {
+			t.Fatalf("insert existing session %s: %v", row.id, err)
+		}
+	}
+
+	s := models.Session{ID: "new-id", Role: models.RoleArchitect, EffectiveRole: models.RoleArchitect}
+	err = insertWithNameFallback(&s, []string{"cedar-1111", "cedar-2222"}, sqlDB, "test")
+	if err == nil {
+		t.Fatal("insertWithNameFallback succeeded, want constraint error")
+	}
+	if !isPKConstraintError(err) && !strings.Contains(err.Error(), "constraint") && !strings.Contains(err.Error(), "UNIQUE") {
+		t.Fatalf("error = %v, want constraint error", err)
+	}
+}
+
+func assertGeneratedSessionName(t *testing.T, name string) {
+	t.Helper()
+	pattern := regexp.MustCompile(`^[a-z]+-[0-9a-f]{4}$`)
+	if !pattern.MatchString(name) {
+		t.Fatalf("generated session name %q does not match word-xxxx format", name)
+	}
+	if strings.Count(name, "-") != 1 {
+		t.Fatalf("generated session name %q has bare or double-suffix shape", name)
 	}
 }
 
