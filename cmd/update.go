@@ -16,8 +16,8 @@ var updateCmd = &cobra.Command{
 }
 
 func init() {
-	updateCmd.Flags().StringP("type",      "t", "", "ticket type label (e.g. feature, bugfix, refactor)")
-	updateCmd.Flags().IntP(   "attention", "a",  0, "attention level 0-99 (0 = unset)")
+	updateCmd.Flags().StringP("type", "t", "", "ticket type label (e.g. feature, bugfix, refactor)")
+	updateCmd.Flags().IntP("attention", "a", 0, "attention level 0-99 (0 = unset)")
 	rootCmd.AddCommand(updateCmd)
 }
 
@@ -33,14 +33,14 @@ func runUpdate(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	typeChanged      := cmd.Flags().Changed("type")
+	typeChanged := cmd.Flags().Changed("type")
 	attentionChanged := cmd.Flags().Changed("attention")
 
 	if !typeChanged && !attentionChanged {
 		return fmt.Errorf("update: provide at least one of --type or --attention")
 	}
 
-	var mainType       *string
+	var mainType *string
 	var attentionLevel *int
 
 	if typeChanged {

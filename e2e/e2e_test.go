@@ -2091,6 +2091,151 @@ func injectPlan(t *testing.T, dir string, ticketID int64) {
 	}
 }
 
+// TestOrchestratorSession covers orchestrator role creation, session start,
+// delegation via --as, and all error paths.
+func TestOrchestratorSession(t *testing.T) {
+
+	// 1. orchestrator_role_in_db — init fresh dir, role list contains "orchestrator"
+	t.Run("orchestrator_role_in_db", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		stdout, stderr, code := run(t, dir, "role", "list")
+		if code != 0 {
+			t.Fatalf("role list failed: exit %d: stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		if !strings.Contains(stdout, "orchestrator") {
+			t.Errorf("expected 'orchestrator' in role list output, got: %q", stdout)
+		}
+	})
+
+	// 2. orchestrator_session_start — session --role orchestrator exits 0
+	t.Run("orchestrator_session_start", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		stdout, stderr, code := run(t, dir, "session", "--role", "orchestrator")
+		if code != 0 {
+			t.Fatalf("expected exit 0 for orchestrator session, got %d: stdout=%q stderr=%q", code, stdout, stderr)
+		}
+		_ = stdout
+	})
+
+	// 3. orchestrator_advance_without_as — orchestrator advance without --as must fail
+	t.Run("orchestrator_advance_without_as", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Orch no-as ticket")
+		run(t, dir, "session", "--end")
+		_, _, code := run(t, dir, "session", "--role", "orchestrator", "--name", "orch-no-as")
+		if code != 0 {
+			t.Fatalf("orchestrator session failed")
+		}
+		stdout, stderr, exitCode := run(t, dir, "advance", "1", "--note", "x")
+		if exitCode == 0 {
+			t.Fatalf("expected non-zero exit for orchestrator advance without --as, got 0: stdout=%q", stdout)
+		}
+		combined := stdout + stderr
+		if !strings.Contains(combined, "must use --as") {
+			t.Errorf("expected 'must use --as' in output, got: %q", combined)
+		}
+	})
+
+	// 4+5. orchestrator_full_delegation_cycle — full setup + both delegated advances succeed
+	t.Run("orchestrator_full_delegation_cycle", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+
+		// Setup: create ticket and move to PLANNED
+		run(t, dir, "session", "--role", "implementer", "--name", "setup-impl")
+		createTicket(t, dir, "Delegation test ticket")
+		advanceTicket(t, dir, "1", "planning")
+		if _, stderr, code := run(t, dir, "plan", "1", "--body", "test plan"); code != 0 {
+			t.Fatalf("plan failed: %q", stderr)
+		}
+		// Register arch and impl sessions (delegation targets must remain non-expired in DB)
+		// Creating a new session does NOT expire the previous one — it only updates the session file.
+		run(t, dir, "session", "--role", "architect", "--name", "alice-arch")
+		run(t, dir, "session", "--role", "implementer", "--name", "bob-impl")
+
+		// Start orchestrator session (alice-arch and bob-impl stay active/non-expired in DB)
+		_, _, code := run(t, dir, "session", "--role", "orchestrator", "--name", "orch-main")
+		if code != 0 {
+			t.Fatalf("orchestrator session failed")
+		}
+
+		// Delegate as arch: PLANNED → IN_PROGRESS
+		stdout, stderr, exitCode := run(t, dir, "advance", "1", "--as", "alice-arch", "--note", "approved")
+		if exitCode != 0 {
+			t.Fatalf("delegate as alice-arch failed: exit %d: stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		if s := ticketStatus(t, dir, 1); s != "IN_PROGRESS" {
+			t.Fatalf("expected IN_PROGRESS after arch delegation, got %q", s)
+		}
+
+		// Delegate as impl: IN_PROGRESS → DONE
+		stdout, stderr, exitCode = run(t, dir, "advance", "1", "--as", "bob-impl", "--note", "done")
+		if exitCode != 0 {
+			t.Fatalf("delegate as bob-impl failed: exit %d: stdout=%q stderr=%q", exitCode, stdout, stderr)
+		}
+		if s := ticketStatus(t, dir, 1); s != "DONE" {
+			t.Fatalf("expected DONE after impl delegation, got %q", s)
+		}
+	})
+
+	// 6. orchestrator_as_nonexistent — --as unknown session name must fail
+	t.Run("orchestrator_as_nonexistent", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Ghost as ticket")
+		run(t, dir, "session", "--end")
+		run(t, dir, "session", "--role", "orchestrator", "--name", "orch-ghost")
+		stdout, stderr, exitCode := run(t, dir, "advance", "1", "--as", "ghost-123", "--note", "x")
+		if exitCode == 0 {
+			t.Fatalf("expected non-zero exit for --as nonexistent session, got 0: stdout=%q", stdout)
+		}
+		_ = stderr
+	})
+
+	// 7. orchestrator_as_wrong_role — --as session with non-arch/impl role must fail
+	t.Run("orchestrator_as_wrong_role", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Wrong role as ticket")
+		run(t, dir, "session", "--end")
+		// Register orch-wrong session (orchestrator role — invalid delegation target)
+		run(t, dir, "session", "--role", "orchestrator", "--name", "orch-wrong")
+		run(t, dir, "session", "--end")
+		// Start main orchestrator
+		run(t, dir, "session", "--role", "orchestrator", "--name", "orch-main2")
+		stdout, stderr, exitCode := run(t, dir, "advance", "1", "--as", "orch-wrong", "--note", "x")
+		if exitCode == 0 {
+			t.Fatalf("expected non-zero exit for --as wrong-role session, got 0: stdout=%q", stdout)
+		}
+		combined := stdout + stderr
+		if !strings.Contains(combined, "cannot delegate") && !strings.Contains(combined, "role") {
+			t.Errorf("expected delegation role error in output, got: %q", combined)
+		}
+	})
+
+	// 8. non_orchestrator_with_as — non-orchestrator using --as must fail
+	t.Run("non_orchestrator_with_as", func(t *testing.T) {
+		dir := t.TempDir()
+		initProject(t, dir)
+		createSession(t, dir, "architect")
+		createTicket(t, dir, "Non-orch as ticket")
+		stdout, stderr, exitCode := run(t, dir, "advance", "1", "--as", "anything", "--note", "x")
+		if exitCode == 0 {
+			t.Fatalf("expected non-zero exit for non-orchestrator --as, got 0: stdout=%q", stdout)
+		}
+		combined := stdout + stderr
+		if !strings.Contains(combined, "only valid for orchestrator") {
+			t.Errorf("expected 'only valid for orchestrator' in output, got: %q", combined)
+		}
+	})
+}
+
 func TestManCommand(t *testing.T) {
 	dir := t.TempDir()
 	initProject(t, dir)

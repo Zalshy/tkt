@@ -64,8 +64,7 @@ func (m Model) SetActiveTab(tab int) Model {
 // Update handles animation tick messages. On each tickMsg it advances the
 // animation and returns the next TickCmd until the animation completes.
 func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
-	switch msg.(type) {
-	case TickMsg:
+	if _, ok := msg.(TickMsg); ok {
 		if m.animDone {
 			return m, nil
 		}

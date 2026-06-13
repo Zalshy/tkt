@@ -11,6 +11,7 @@ import (
 	"github.com/mark3labs/mcp-go/server"
 	ilog "github.com/zalshy/tkt/internal/log"
 	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/session"
 	"github.com/zalshy/tkt/internal/state"
 	"github.com/zalshy/tkt/internal/ticket"
 	"github.com/zalshy/tkt/internal/usage"
@@ -85,6 +86,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithString("note", mcplib.Required(), mcplib.Description("Reason for advancing (required)")),
 			mcplib.WithString("to", mcplib.Description("Target status (optional, defaults to natural next state)")),
 			mcplib.WithBoolean("force", mcplib.Description("Bypass soft validation rules")),
+			mcplib.WithString("as", mcplib.Description("Act as this session name (orchestrator only)")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			idStr := req.GetString("id", "")
@@ -97,6 +99,25 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			}
 			toStr := req.GetString("to", "")
 			force := req.GetBool("force", false)
+			asName := req.GetString("as", "")
+
+			// Shadow-replace local actingSess — never mutate the closed-over sess pointer.
+			actingSess := sess
+			if actingSess != nil && actingSess.EffectiveRole == models.RoleOrchestrator {
+				if asName == "" {
+					return mcplib.NewToolResultError("advance: orchestrator session must use --as <session-name>"), nil
+				}
+				delegated, err := session.LoadByName(asName, db)
+				if err != nil {
+					return mcplib.NewToolResultError(fmt.Sprintf("advance: --as %q: %v", asName, err)), nil
+				}
+				if delegated.EffectiveRole != models.RoleArchitect && delegated.EffectiveRole != models.RoleImplementer {
+					return mcplib.NewToolResultError(fmt.Sprintf("advance: cannot delegate to session %q with role %q", asName, delegated.EffectiveRole)), nil
+				}
+				actingSess = delegated
+			} else if asName != "" {
+				return mcplib.NewToolResultError("advance: --as is only valid for orchestrator sessions"), nil
+			}
 
 			var targetStatus models.Status
 			if toStr != "" {
@@ -119,7 +140,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 					continue
 				}
 				fromStatus := t.Status
-				if err := state.Execute(p, targetStatus, note, sess, db, force); err != nil {
+				if err := state.Execute(p, targetStatus, note, actingSess, db, force); err != nil {
 					errs = append(errs, fmt.Sprintf("#%s: %v", p, err))
 					continue
 				}

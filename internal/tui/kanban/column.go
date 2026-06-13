@@ -40,6 +40,18 @@ func (c Column) SetTickets(t []models.Ticket) Column {
 	return c
 }
 
+// RestoreCursor sets the cursor to the ticket with the given ID.
+// If ID not found, returns c unchanged (cursor stays at 0 after SetTickets).
+func (c Column) RestoreCursor(id int64) Column {
+	for i, t := range c.tickets {
+		if t.ID == id {
+			c.cursor = i
+			return c.adjustScroll()
+		}
+	}
+	return c
+}
+
 // SelectedTicket returns a pointer to the ticket under the cursor, or nil.
 func (c Column) SelectedTicket() *models.Ticket {
 	if len(c.tickets) == 0 || c.cursor < 0 || c.cursor >= len(c.tickets) {
@@ -80,10 +92,10 @@ func (c Column) adjustScroll() Column {
 }
 
 // cardHeightNormal is the number of rendered lines for a standard card.
-const cardHeightNormal = 2
+const cardHeightNormal = 3
 
 // cardHeightInProgress is the number of rendered lines for an IN_PROGRESS card (includes progress bar).
-const cardHeightInProgress = 3
+const cardHeightInProgress = 4
 
 // cardHeight returns the rendered line count for ticket t.
 func cardHeight(t models.Ticket) int {
@@ -124,8 +136,7 @@ func (c Column) visibleCards() int {
 
 // Update handles key messages for cursor movement.
 func (c Column) Update(msg tea.Msg) (Column, tea.Cmd) {
-	switch msg := msg.(type) {
-	case tea.KeyMsg:
+	if msg, ok := msg.(tea.KeyMsg); ok {
 		switch msg.String() {
 		case "j", "down":
 			return c.CursorDown(), nil

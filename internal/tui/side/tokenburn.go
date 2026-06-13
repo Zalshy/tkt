@@ -64,15 +64,15 @@ func fmtTokens(n int64) string {
 //
 // Layout — full:
 //
-//	     TOKEN BURN          ← centered title
-//	  total       1.84M
-//	  architect   1.21M
-//	  implementer 0.63M
+//	   TOKEN BURN          ← centered title
+//	total       1.84M
+//	architect   1.21M
+//	implementer 0.63M
 //
 // Layout — compact:
 //
-//	     TOKEN BURN
-//	  total       1.84M
+//	   TOKEN BURN
+//	total       1.84M
 func renderTokenBurn(d tokenBurnData, width int, compact bool) string {
 	var sb strings.Builder
 

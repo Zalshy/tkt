@@ -327,9 +327,9 @@ func TestPlan_StdinFlag_Empty(t *testing.T) {
 // shared planCmd global.
 func resetPlanFlags(t *testing.T) {
 	t.Helper()
-	planCmd.Flags().Set("body", "")    //nolint:errcheck
+	planCmd.Flags().Set("body", "")       //nolint:errcheck
 	planCmd.Flags().Set("stdin", "false") //nolint:errcheck
-	planCmd.Flags().Set("file", "")    //nolint:errcheck
+	planCmd.Flags().Set("file", "")       //nolint:errcheck
 }
 
 // TestPlan_MutualExclusion_BodyStdin verifies cobra rejects --body and --stdin together.

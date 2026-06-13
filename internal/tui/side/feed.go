@@ -180,10 +180,11 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 
 		rest := fmt.Sprintf(" · %-6s → %-*s %*s", ticket, stateW, state, ageW, age)
 
-		if isHighlighted {
+		switch {
+		case isHighlighted:
 			plain := fmt.Sprintf("%-*s%s", sessionW, session, rest)
 			sb.WriteString(highlightStyle.Render(plain))
-		} else if e.isForced {
+		case e.isForced:
 			// Session name in its normal per-session colour; everything after in warning.
 			// rest starts with " " — replace that leading space with "⚠" so the symbol
 			// sits flush after the session name without changing total row width.
@@ -191,7 +192,7 @@ func renderFeed(entries []feedEntry, width int, maxEntries int) string {
 				Foreground(sessionColor(e.sessionName)).
 				Render(fmt.Sprintf("%-*s", sessionW, session)))
 			sb.WriteString(warnStyle.Render("⚠" + rest[1:]))
-		} else {
+		default:
 			sb.WriteString(lipgloss.NewStyle().
 				Foreground(sessionColor(e.sessionName)).
 				Render(fmt.Sprintf("%-*s", sessionW, session)))

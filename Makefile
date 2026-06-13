@@ -12,9 +12,10 @@ test:
 
 fmt:
 	gofmt -w .
+	@which goimports > /dev/null 2>&1 && goimports -w . || true
 
 lint:
-	go vet ./...
+	golangci-lint run ./...
 
 e2e: build
 	go test -tags e2e -v ./e2e/...

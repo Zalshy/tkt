@@ -144,7 +144,7 @@ func runSessionShow(cmd *cobra.Command) error {
 			return fmt.Errorf("")
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			return fmt.Errorf(msgExpiredSession)
+			return errors.New(msgExpiredSession)
 		}
 		return fmt.Errorf("session: load: %w", err)
 	}

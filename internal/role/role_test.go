@@ -116,6 +116,21 @@ func TestCreate_MonitorBuiltInGuard(t *testing.T) {
 	}
 }
 
+// TestCreate_OrchestratorBuiltInGuard verifies that attempting to create a role named "orchestrator" returns ErrBuiltIn.
+func TestCreate_OrchestratorBuiltInGuard(t *testing.T) {
+	db := setupTestDB(t)
+
+	// Note: baseRole "architect" used because the baseRole validation rejects "orchestrator"
+	// before the built-in guard fires — we want to test the built-in guard specifically.
+	err := Create("orchestrator", "architect", db)
+	if err == nil {
+		t.Fatal("Create orchestrator: expected error, got nil")
+	}
+	if !errors.Is(err, ErrBuiltIn) {
+		t.Errorf("Create orchestrator: got %v, want to wrap ErrBuiltIn", err)
+	}
+}
+
 // TestDelete_NotFound verifies that deleting a non-existent role returns ErrNotFound.
 func TestDelete_NotFound(t *testing.T) {
 	db := setupTestDB(t)

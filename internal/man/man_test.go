@@ -7,10 +7,10 @@ import (
 
 func TestNormalizeName(t *testing.T) {
 	tests := map[string]string{
-		" session ":     "session",
-		"TKT session":   "session",
-		"ticket_log":    "ticket-log",
-		"llm":           "minimal",
+		" session ":      "session",
+		"TKT session":    "session",
+		"ticket_log":     "ticket-log",
+		"llm":            "minimal",
 		"TKT ticket_log": "ticket-log",
 	}
 

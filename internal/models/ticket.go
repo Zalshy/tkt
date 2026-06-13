@@ -17,15 +17,15 @@ const (
 
 // Ticket maps to the tickets table.
 type Ticket struct {
-	ID          int64
-	Title       string
-	Description string
-	Status      Status
+	ID             int64
+	Title          string
+	Description    string
+	Status         Status
 	Tier           string // "critical", "standard", "low"
 	MainType       string
 	AttentionLevel int
 	CreatedBy      string
-	CreatedAt   time.Time
-	UpdatedAt   time.Time
-	DeletedAt   *time.Time
+	CreatedAt      time.Time
+	UpdatedAt      time.Time
+	DeletedAt      *time.Time
 }

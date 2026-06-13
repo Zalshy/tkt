@@ -10,6 +10,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/zalshy/tkt/internal/db"
 	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/output"
 	"github.com/zalshy/tkt/internal/session"
 	"github.com/zalshy/tkt/internal/state"
 	"github.com/zalshy/tkt/internal/ticket"
@@ -23,6 +24,7 @@ var (
 	advanceForce     bool
 	advanceDryRun    bool
 	advanceExplain   bool
+	advanceAs        string
 )
 
 var advanceCmd = &cobra.Command{
@@ -40,6 +42,7 @@ func init() {
 	advanceCmd.Flags().BoolVar(&advanceForce, "force", false, "override role/isolation checks (violation will be recorded)")
 	advanceCmd.Flags().BoolVar(&advanceDryRun, "dry-run", false, "check transition without changing state or writing log")
 	advanceCmd.Flags().BoolVar(&advanceExplain, "explain", false, "explain why transition is allowed or blocked without changing state")
+	advanceCmd.Flags().StringVar(&advanceAs, "as", "", "act as this session (orchestrator only)")
 	rootCmd.AddCommand(advanceCmd)
 }
 
@@ -93,12 +96,28 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	sess, err := session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf(msgNoSession)
+			return errors.New(msgNoSession)
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			return fmt.Errorf(msgExpiredSession)
+			return errors.New(msgExpiredSession)
 		}
 		return fmt.Errorf("advance: load session: %w", err)
+	}
+
+	if sess.EffectiveRole == models.RoleOrchestrator {
+		if advanceAs == "" {
+			return fmt.Errorf("advance: orchestrator session must use --as <session-name>")
+		}
+		delegated, err := session.LoadByName(advanceAs, database)
+		if err != nil {
+			return fmt.Errorf("advance: --as %q: %w", advanceAs, err)
+		}
+		if delegated.EffectiveRole != models.RoleArchitect && delegated.EffectiveRole != models.RoleImplementer {
+			return fmt.Errorf("advance: cannot delegate to session %q with role %q", advanceAs, delegated.EffectiveRole)
+		}
+		sess = delegated
+	} else if advanceAs != "" {
+		return fmt.Errorf("advance: --as is only valid for orchestrator sessions")
 	}
 
 	out := cmd.OutOrStdout()
@@ -130,7 +149,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 				errs = append(errs, fmt.Sprintf("#%s: %v", ticketID, err))
 				continue
 			}
-			writeAdvanceCheck(out, check, advanceExplain)
+			output.WriteAdvanceCheck(out, check, advanceExplain)
 			if !check.Allowed {
 				errs = append(errs, fmt.Sprintf("#%s: %s", ticketID, check.Reason))
 			}
@@ -166,7 +185,7 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 			}
 			if len(unresolved) > 0 {
 				fmt.Fprintf(out, "\nWarning: #%s has %d unresolved %s\n",
-					numericID, len(unresolved), plural(len(unresolved), "dependency", "dependencies"))
+					numericID, len(unresolved), output.Plural(len(unresolved), "dependency", "dependencies"))
 				for _, d := range unresolved {
 					fmt.Fprintf(out, "  ○ #%d   %s\n", d.ID, d.Status)
 				}
@@ -185,35 +204,4 @@ func runAdvance(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
-}
-
-func writeAdvanceCheck(out interface{ Write([]byte) (int, error) }, check state.CheckResult, explain bool) {
-	status := "would advance"
-	if !check.Allowed {
-		status = "blocked"
-	}
-	fmt.Fprintf(out, "#%s  %s → %s  %s\n", check.TicketID, check.From, check.To, status)
-	if !explain {
-		if !check.Allowed {
-			fmt.Fprintf(out, "Reason: %s\n", check.Reason)
-		}
-		return
-	}
-	fmt.Fprintf(out, "Allowed: %t\n", check.Allowed)
-	fmt.Fprintf(out, "Forced: %t\n", check.Forced)
-	fmt.Fprintf(out, "Reason: %s\n", check.Reason)
-	if check.PlanRequired {
-		fmt.Fprintf(out, "Plan required: true\n")
-		fmt.Fprintf(out, "Plan present: %t\n", check.PlanPresent)
-	}
-	if len(check.Hints) > 0 {
-		fmt.Fprintf(out, "See: %s\n", strings.Join(check.Hints, ", "))
-	}
-}
-
-func plural(n int, singular, pluralForm string) string {
-	if n == 1 {
-		return singular
-	}
-	return pluralForm
 }

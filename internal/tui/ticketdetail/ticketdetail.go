@@ -7,8 +7,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/charmbracelet/glamour"
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/charmbracelet/glamour"
 	"github.com/zalshy/tkt/internal/log"
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/tui/styles"
@@ -26,15 +26,15 @@ type DetailLoadedMsg struct {
 // return updated copies — callers must replace their stored model with the
 // return value.
 type Model struct {
-	ticket        *models.Ticket
-	logs          []models.LogEntry
-	plan          *models.LogEntry
-	offset        int
-	focused       bool
-	width         int
-	height        int
-	epoch         int
-	rendered      string                // cached glamour output; rebuilt on SetTicket, SetDetail, SetSize
+	ticket   *models.Ticket
+	logs     []models.LogEntry
+	plan     *models.LogEntry
+	offset   int
+	focused  bool
+	width    int
+	height   int
+	epoch    int
+	rendered string // cached glamour output; rebuilt on SetTicket, SetDetail, SetSize
 	// renderer is a pointer shared across value copies of Model.  Sharing is
 	// safe because buildRendered — the only function that writes this field —
 	// is called exclusively from Update and the SetTicket/SetDetail/SetSize

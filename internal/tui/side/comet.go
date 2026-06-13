@@ -71,11 +71,12 @@ func renderCometBar(pos float64, dirBlend float64, width int) string {
 	var sb strings.Builder
 	for col := 0; col < width; col++ {
 		var brightness float64
-		if col == headCol {
+		switch {
+		case col == headCol:
 			brightness = 1.0
-		} else if col < headCol {
+		case col < headCol:
 			brightness = tailBrightness(headCol-col) * leftWeight
-		} else {
+		default:
 			brightness = tailBrightness(col-headCol) * rightWeight
 		}
 

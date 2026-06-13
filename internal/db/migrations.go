@@ -296,6 +296,20 @@ WHERE kind = 'usage'
 	{
 		`ALTER TABLE ticket_log ADD COLUMN forced INTEGER NOT NULL DEFAULT 0`,
 	},
+	// V20 — add orchestrator as built-in role.
+	// Widens base_role CHECK to include 'orchestrator' via table rebuild (SQLite cannot ALTER CHECK).
+	{
+		`CREATE TABLE roles_new (
+        name       TEXT PRIMARY KEY,
+        base_role  TEXT NOT NULL CHECK (base_role IN ('architect', 'implementer', 'monitor', 'orchestrator')),
+        is_builtin INTEGER NOT NULL DEFAULT 0,
+        created_at DATETIME NOT NULL DEFAULT (datetime('now'))
+    )`,
+		`INSERT INTO roles_new SELECT name, base_role, is_builtin, created_at FROM roles`,
+		`DROP TABLE roles`,
+		`ALTER TABLE roles_new RENAME TO roles`,
+		`INSERT OR IGNORE INTO roles (name, base_role, is_builtin) VALUES ('orchestrator', 'orchestrator', 1)`,
+	},
 }
 
 // verifyV8Backfill asserts that the number of rows inserted into ticket_usage

@@ -6,18 +6,19 @@ import "time"
 type Role string
 
 const (
-	RoleArchitect   Role = "architect"
-	RoleImplementer Role = "implementer"
-	RoleMonitor     Role = "monitor"
+	RoleArchitect    Role = "architect"
+	RoleImplementer  Role = "implementer"
+	RoleMonitor      Role = "monitor"
+	RoleOrchestrator Role = "orchestrator"
 )
 
 // Session maps to the sessions table.
 type Session struct {
-	ID           string
-	Role         Role  // raw DB value — the role name as stored
-	EffectiveRole Role  // resolved base role: RoleArchitect, RoleImplementer, or RoleMonitor
-	Name         string
-	CreatedAt    time.Time
-	LastActive   time.Time
-	ExpiredAt    *time.Time
+	ID            string
+	Role          Role // raw DB value — the role name as stored
+	EffectiveRole Role // resolved base role: RoleArchitect, RoleImplementer, RoleMonitor, or RoleOrchestrator
+	Name          string
+	CreatedAt     time.Time
+	LastActive    time.Time
+	ExpiredAt     *time.Time
 }

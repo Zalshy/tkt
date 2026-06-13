@@ -169,6 +169,59 @@ func TestRenderTokenBurnCompact(t *testing.T) {
 	}
 }
 
+// TestRoleAbbrevOrchestrator verifies that roleAbbrev returns "orch" for the
+// orchestrator role.
+func TestRoleAbbrevOrchestrator(t *testing.T) {
+	got := roleAbbrev("orchestrator")
+	if got != "orch" {
+		t.Errorf("roleAbbrev(\"orchestrator\") = %q, want \"orch\"", got)
+	}
+}
+
+// TestRoleStyleOrchestrator verifies that roleStyle returns label "orch" and a
+// non-muted color for the orchestrator role.
+func TestRoleStyleOrchestrator(t *testing.T) {
+	label, color := roleStyle("orchestrator")
+	if label != "orch" {
+		t.Errorf("roleStyle(\"orchestrator\") label = %q, want \"orch\"", label)
+	}
+	// Amber #E5C07B must not equal the muted fallback color.
+	if color == lipgloss.Color("") {
+		t.Errorf("roleStyle(\"orchestrator\") color is empty")
+	}
+	if string(color) == string(lipgloss.Color("#888888")) {
+		t.Errorf("roleStyle(\"orchestrator\") color appears muted: %q", color)
+	}
+}
+
+// TestRenderSessionsOrchestratorCountRow verifies that renderSessions renders
+// the orchestrator count row when an orchestrator event is present.
+func TestRenderSessionsOrchestratorCountRow(t *testing.T) {
+	events := []sessionEvent{
+		{name: "orch-1", role: "orchestrator", startedAt: time.Now().Add(-2 * time.Minute)},
+	}
+	out := renderSessions(events, 80, 10)
+	if !strings.Contains(out, "orchestrator") {
+		t.Errorf("expected 'orchestrator' count row in output, got: %q", out)
+	}
+	if !strings.Contains(out, "orch-1") {
+		t.Errorf("expected session name 'orch-1' in output, got: %q", out)
+	}
+}
+
+// TestRenderSessionsOrchestratorCountAlwaysShown verifies that the orchestrator
+// count row is rendered even when orchC is zero.
+func TestRenderSessionsOrchestratorCountAlwaysShown(t *testing.T) {
+	// No orchestrator events — row must still appear with count 0.
+	events := []sessionEvent{
+		{name: "arch-1", role: "architect", startedAt: time.Now().Add(-1 * time.Minute)},
+	}
+	out := renderSessions(events, 80, 10)
+	if !strings.Contains(out, "orchestrator") {
+		t.Errorf("expected 'orchestrator' count row even with zero orch events, got: %q", out)
+	}
+}
+
 // TestRenderSessionsHighlightFade verifies that an event highlight lingers for
 // about four seconds, fades in one-second steps, then returns to normal output.
 // Forces TrueColor profile so lipgloss emits ANSI codes even outside a TTY.

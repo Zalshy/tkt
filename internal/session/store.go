@@ -9,7 +9,31 @@ import (
 
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/project"
+	rolepkg "github.com/zalshy/tkt/internal/role"
 )
+
+// LoadByName returns the active session with the given name.
+// Returns ErrNoSession if no active (non-expired) session with that name exists.
+func LoadByName(name string, db *sql.DB) (*models.Session, error) {
+	var s models.Session
+	err := db.QueryRow(
+		`SELECT id, role, name, created_at, last_active
+		 FROM sessions WHERE name = ? AND expired_at IS NULL`,
+		name,
+	).Scan(&s.ID, &s.Role, &s.Name, &s.CreatedAt, &s.LastActive)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNoSession
+	}
+	if err != nil {
+		return nil, fmt.Errorf("LoadByName: %w", err)
+	}
+	base, err := rolepkg.ResolveBase(string(s.Role), db)
+	if err != nil {
+		return nil, fmt.Errorf("LoadByName: resolve base role: %w", err)
+	}
+	s.EffectiveRole = base
+	return &s, nil
+}
 
 // insertSession inserts a new session row into the sessions table.
 func insertSession(db *sql.DB, s *models.Session) error {

@@ -22,17 +22,18 @@ func tierColor(tier string) lipgloss.Color {
 
 // attentionColor returns the foreground color for a given attention level.
 func attentionColor(level int) lipgloss.Color {
-	if level <= 0 {
+	switch {
+	case level <= 0:
 		return styles.Muted
-	} else if level <= 20 {
+	case level <= 20:
 		return styles.AttentionA
-	} else if level <= 40 {
+	case level <= 40:
 		return styles.AttentionB
-	} else if level <= 60 {
+	case level <= 60:
 		return styles.AttentionC
-	} else if level <= 80 {
+	case level <= 80:
 		return styles.AttentionD
-	} else {
+	default:
 		return styles.AttentionE
 	}
 }
@@ -52,17 +53,18 @@ func tierBadge(tier string) string {
 // attentionTierLabel returns the badge text and color for a ticket's attention
 // level, falling back to the tier badge when level == 0.
 func attentionTierLabel(level int, fallbackTier string) (string, lipgloss.Color) {
-	if level == 0 {
+	switch {
+	case level == 0:
 		return tierBadge(fallbackTier), tierColor(fallbackTier)
-	} else if level <= 20 {
+	case level <= 20:
 		return "[low]", styles.AttentionA
-	} else if level <= 33 {
+	case level <= 33:
 		return "[low]", styles.AttentionB
-	} else if level <= 66 {
+	case level <= 66:
 		return "[standard]", styles.AttentionC
-	} else if level <= 80 {
+	case level <= 80:
 		return "[critical]", styles.AttentionD
-	} else {
+	default:
 		return "[critical]", styles.AttentionE
 	}
 }
@@ -271,11 +273,4 @@ func padRight(s string, width int) string {
 		runes = append(runes, ' ')
 	}
 	return string(runes)
-}
-
-func max(a, b int) int {
-	if a > b {
-		return a
-	}
-	return b
 }
