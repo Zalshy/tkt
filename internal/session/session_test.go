@@ -15,19 +15,6 @@ import (
 	rolepkg "github.com/zalshy/tkt/internal/role"
 )
 
-// openTestDB opens a fresh DB in a temp .tkt/ directory and returns both the root
-// path and the open *sql.DB. It registers cleanup automatically.
-func openTestDB(t *testing.T) (root string, sqlDB interface {
-	Exec(query string, args ...any) (interface{ LastInsertId() (int64, error) }, error)
-}) {
-	t.Helper()
-	root = t.TempDir()
-	if err := os.MkdirAll(filepath.Join(root, ".tkt"), 0o755); err != nil {
-		t.Fatalf("setup mkdir .tkt: %v", err)
-	}
-	return root, nil
-}
-
 // setupDB is the real helper used by integration tests.
 func setupDB(t *testing.T) (root string) {
 	t.Helper()
@@ -610,5 +597,76 @@ func TestExpireByID_NoRowIdempotent(t *testing.T) {
 
 	if err := ExpireByID("nonexistent-id", sqlDB); err != nil {
 		t.Errorf("ExpireByID with unknown ID: got error %v, want nil", err)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// LoadByName tests
+// ---------------------------------------------------------------------------
+
+// TestLoadByName_ReturnsActiveSession verifies that LoadByName finds an active session by name.
+func TestLoadByName_ReturnsActiveSession(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	s, err := Create(models.RoleArchitect, "alice-arch", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	loaded, err := LoadByName("alice-arch", sqlDB)
+	if err != nil {
+		t.Fatalf("LoadByName: %v", err)
+	}
+	if loaded.ID != s.ID {
+		t.Errorf("loaded ID = %q, want %q", loaded.ID, s.ID)
+	}
+	if loaded.Name != "alice-arch" {
+		t.Errorf("loaded Name = %q, want %q", loaded.Name, "alice-arch")
+	}
+	if loaded.EffectiveRole != models.RoleArchitect {
+		t.Errorf("loaded EffectiveRole = %q, want %q", loaded.EffectiveRole, models.RoleArchitect)
+	}
+}
+
+// TestLoadByName_ErrNoSession verifies that LoadByName returns ErrNoSession for unknown name.
+func TestLoadByName_ErrNoSession(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	_, err = LoadByName("no-such-session", sqlDB)
+	if !errors.Is(err, ErrNoSession) {
+		t.Errorf("expected ErrNoSession, got %v", err)
+	}
+}
+
+// TestLoadByName_ExpiredSession verifies that LoadByName returns ErrNoSession for expired sessions.
+func TestLoadByName_ExpiredSession(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	// Insert an expired session with a known name.
+	if _, err := sqlDB.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
+		 VALUES ('expired-id', 'architect', 'expired-name', datetime('now'), datetime('now'), datetime('now'))`,
+	); err != nil {
+		t.Fatalf("insert expired session: %v", err)
+	}
+
+	_, err = LoadByName("expired-name", sqlDB)
+	if !errors.Is(err, ErrNoSession) {
+		t.Errorf("expected ErrNoSession for expired session, got %v", err)
 	}
 }

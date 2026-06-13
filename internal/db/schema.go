@@ -75,9 +75,9 @@ CREATE TABLE ticket_log_new (
     deleted_at  DATETIME NULL
 )`
 
-const createIndexTicketLogNewTicketID     = `CREATE INDEX idx_ticket_log_new_ticket_id        ON ticket_log_new(ticket_id)`
-const createIndexTicketLogNewKind         = `CREATE INDEX idx_ticket_log_new_kind             ON ticket_log_new(kind)`
-const createIndexTicketLogNewDeletedAt    = `CREATE INDEX idx_ticket_log_new_deleted_at       ON ticket_log_new(deleted_at)`
+const createIndexTicketLogNewTicketID = `CREATE INDEX idx_ticket_log_new_ticket_id        ON ticket_log_new(ticket_id)`
+const createIndexTicketLogNewKind = `CREATE INDEX idx_ticket_log_new_kind             ON ticket_log_new(kind)`
+const createIndexTicketLogNewDeletedAt = `CREATE INDEX idx_ticket_log_new_deleted_at       ON ticket_log_new(deleted_at)`
 const createIndexTicketLogNewTicketIDKind = `CREATE INDEX idx_ticket_log_new_ticket_id_kind   ON ticket_log_new(ticket_id, kind)`
 
 const createTableTicketDependenciesNew = `CREATE TABLE ticket_dependencies_new (

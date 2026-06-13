@@ -110,6 +110,65 @@ func TestValidateTransition_IsolationViolation(t *testing.T) {
 	}
 }
 
+func TestValidateTransition_OrchestratorBypass(t *testing.T) {
+	orch := sess("orch-main-0001", models.RoleOrchestrator)
+	same := sess("orch-main-0001", models.RoleOrchestrator) // same name — isolation would normally block
+
+	tests := []struct {
+		name      string
+		from      models.Status
+		to        models.Status
+		actor     *models.Session
+		submitter *models.Session
+		wantErr   bool
+	}{
+		{
+			name:      "orchestrator PLANNING→IN_PROGRESS (normally architect-only)",
+			from:      models.StatusPlanning,
+			to:        models.StatusInProgress,
+			actor:     orch,
+			submitter: same,
+			wantErr:   true,
+		},
+		{
+			name:      "orchestrator IN_PROGRESS→DONE (normally implementer-only)",
+			from:      models.StatusInProgress,
+			to:        models.StatusDone,
+			actor:     orch,
+			submitter: same,
+			wantErr:   true,
+		},
+		{
+			name:      "orchestrator DONE→VERIFIED same session (isolation bypass)",
+			from:      models.StatusDone,
+			to:        models.StatusVerified,
+			actor:     orch,
+			submitter: same,
+			wantErr:   true,
+		},
+		{
+			name:      "orchestrator invalid edge TODO→VERIFIED still errors",
+			from:      models.StatusTodo,
+			to:        models.StatusVerified,
+			actor:     orch,
+			submitter: nil,
+			wantErr:   true,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			err := ValidateTransition(tt.from, tt.to, tt.actor, tt.submitter, false)
+			if tt.wantErr && err == nil {
+				t.Fatal("expected error, got nil")
+			}
+			if !tt.wantErr && err != nil {
+				t.Fatalf("unexpected error: %v", err)
+			}
+		})
+	}
+}
+
 func TestNextState_AllForwardPaths(t *testing.T) {
 	tests := []struct {
 		from models.Status

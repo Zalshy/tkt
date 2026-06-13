@@ -79,13 +79,15 @@ func renderSessions(events []sessionEvent, width, maxVisible int) string {
 	compact := maxVisible <= 0
 
 	// — Counts: always from ALL events, before any display cap —
-	var archC, implC int
+	var archC, implC, orchC int
 	for _, e := range events {
 		switch e.role {
 		case "architect":
 			archC++
 		case "implementer":
 			implC++
+		case "orchestrator":
+			orchC++
 		}
 	}
 
@@ -124,9 +126,20 @@ func renderSessions(events []sessionEvent, width, maxVisible int) string {
 		Bold(true).
 		Render(fmt.Sprintf("  %d", implC))
 
+	orchBadge := lipgloss.NewStyle().
+		Foreground(lipgloss.Color("#E5C07B")).
+		Bold(true).
+		Render("orchestrator")
+	orchCount := lipgloss.NewStyle().
+		Foreground(styles.Primary).
+		Bold(true).
+		Render(fmt.Sprintf("  %d", orchC))
+
 	sb.WriteString(archBadge + archCount)
 	sb.WriteString("\n")
 	sb.WriteString(implBadge + implCount)
+	sb.WriteString("\n")
+	sb.WriteString(orchBadge + orchCount)
 	sb.WriteString("\n")
 
 	// Compact mode: counts only — stop here.
@@ -192,6 +205,8 @@ func roleAbbrev(role string) string {
 		return "arch"
 	case "implementer":
 		return "impl"
+	case "orchestrator":
+		return "orch"
 	default:
 		return role
 	}
@@ -204,6 +219,8 @@ func roleStyle(role string) (string, lipgloss.Color) {
 		return "arch", lipgloss.Color("#C678DD")
 	case "implementer":
 		return "impl", lipgloss.Color("#56B6C2")
+	case "orchestrator":
+		return "orch", lipgloss.Color("#E5C07B")
 	default:
 		return role, styles.Muted
 	}

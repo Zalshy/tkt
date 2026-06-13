@@ -17,9 +17,9 @@ func runDocAddInDir(t *testing.T, dir string, args []string) (string, error) {
 		rootDir = savedRootDir
 		docAddCmd.SetOut(nil)
 		// Reset flags.
-		docAddCmd.Flags().Set("body", "")   //nolint:errcheck
+		docAddCmd.Flags().Set("body", "")       //nolint:errcheck
 		docAddCmd.Flags().Set("stdin", "false") //nolint:errcheck
-		docAddCmd.Flags().Set("file", "")   //nolint:errcheck
+		docAddCmd.Flags().Set("file", "")       //nolint:errcheck
 		docAddCmd.SetIn(nil)
 	}()
 
@@ -35,9 +35,9 @@ func runDocAddInDir(t *testing.T, dir string, args []string) (string, error) {
 // resetDocAddFlags resets all three mutually-exclusive doc add flags to zero values.
 func resetDocAddFlags(t *testing.T) {
 	t.Helper()
-	docAddCmd.Flags().Set("body", "")    //nolint:errcheck
+	docAddCmd.Flags().Set("body", "")       //nolint:errcheck
 	docAddCmd.Flags().Set("stdin", "false") //nolint:errcheck
-	docAddCmd.Flags().Set("file", "")    //nolint:errcheck
+	docAddCmd.Flags().Set("file", "")       //nolint:errcheck
 }
 
 // TestDocAdd_BodyFlag verifies --body creates the file and prints "created docs/".

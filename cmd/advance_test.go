@@ -24,6 +24,7 @@ func runAdvanceInDir(t *testing.T, dir string, args []string, setupFlags func())
 	savedForce := advanceForce
 	savedDryRun := advanceDryRun
 	savedExplain := advanceExplain
+	savedAs := advanceAs
 	defer func() {
 		rootDir = savedRootDir
 		advanceNote = savedNote
@@ -33,6 +34,7 @@ func runAdvanceInDir(t *testing.T, dir string, args []string, setupFlags func())
 		advanceForce = savedForce
 		advanceDryRun = savedDryRun
 		advanceExplain = savedExplain
+		advanceAs = savedAs
 		advanceCmd.SetOut(nil)
 		advanceCmd.SetIn(nil)
 		advanceCmd.SilenceErrors = false
@@ -46,6 +48,7 @@ func runAdvanceInDir(t *testing.T, dir string, args []string, setupFlags func())
 	advanceForce = false
 	advanceDryRun = false
 	advanceExplain = false
+	advanceAs = ""
 
 	if setupFlags != nil {
 		setupFlags()
@@ -523,5 +526,121 @@ func TestAdvance_DryRunExplainConflict(t *testing.T) {
 	})
 	if err == nil || !strings.Contains(err.Error(), "cannot be used together") {
 		t.Fatalf("expected conflict error, got %v", err)
+	}
+}
+
+// seedNamedSession inserts a session row with the given id, name, and role WITHOUT writing
+// the session file. Used to set up secondary (delegated) sessions.
+func seedNamedSession(t *testing.T, dir string, id string, name string, role string) {
+	t.Helper()
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("seedNamedSession: open db: %v", err)
+	}
+	defer database.Close()
+
+	if _, err := database.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active)
+		 VALUES (?, ?, ?, datetime('now'), datetime('now'))`,
+		id, role, name,
+	); err != nil {
+		t.Fatalf("seedNamedSession: insert: %v", err)
+	}
+}
+
+// TestAdvanceAs_OrchestratorDelegates: orchestrator with valid --as arch session succeeds.
+func TestAdvanceAs_OrchestratorDelegates(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	// Active session = orchestrator
+	seedSessionWithRole(t, dir, "orch-sess", "orchestrator")
+	// Delegated session = architect (not the active session file)
+	seedNamedSession(t, dir, "arch-sess", "alice-arch", "architect")
+	// Ticket in TODO state; TODO→PLANNING is valid for architect
+	id := seedTicketWithStatus(t, dir, "Delegate ticket", "TODO")
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "delegating as arch"
+		advanceAs = "alice-arch"
+	})
+	if err != nil {
+		t.Fatalf("expected success, got: %v", err)
+	}
+}
+
+// TestAdvanceAs_OrchestratorNoAs: orchestrator without --as returns hard error.
+func TestAdvanceAs_OrchestratorNoAs(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "orch-no-as", "orchestrator")
+	id := seedTicketWithStatus(t, dir, "No as ticket", "TODO")
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "should fail"
+	})
+	if err == nil || !strings.Contains(err.Error(), "must use --as") {
+		t.Fatalf("expected 'must use --as' error, got: %v", err)
+	}
+}
+
+// TestAdvanceAs_NonOrchestratorWithAs: non-orchestrator session using --as returns hard error.
+func TestAdvanceAs_NonOrchestratorWithAs(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "arch-with-as", "architect")
+	id := seedTicketWithStatus(t, dir, "Non orch with as", "TODO")
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "should fail"
+		advanceAs = "some-session"
+	})
+	if err == nil || !strings.Contains(err.Error(), "only valid for orchestrator") {
+		t.Fatalf("expected 'only valid for orchestrator' error, got: %v", err)
+	}
+}
+
+// TestAdvanceAs_UnknownSession: orchestrator + --as unknown name returns ErrNoSession.
+func TestAdvanceAs_UnknownSession(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "orch-unknown-as", "orchestrator")
+	id := seedTicketWithStatus(t, dir, "Unknown as", "TODO")
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "should fail"
+		advanceAs = "nonexistent-session"
+	})
+	if err == nil {
+		t.Fatalf("expected error for unknown session, got nil")
+	}
+	if !strings.Contains(err.Error(), "nonexistent-session") && !strings.Contains(err.Error(), "no active session") {
+		t.Fatalf("expected error about unknown session, got: %v", err)
+	}
+}
+
+// TestAdvanceAs_MonitorSession: orchestrator + --as monitor session returns delegation error.
+func TestAdvanceAs_MonitorSession(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	seedSessionWithRole(t, dir, "orch-monitor-as", "orchestrator")
+	seedNamedSession(t, dir, "monitor-sess", "mon-session", "monitor")
+	id := seedTicketWithStatus(t, dir, "Monitor as", "TODO")
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "should fail"
+		advanceAs = "mon-session"
+	})
+	if err == nil || !strings.Contains(err.Error(), "cannot delegate") {
+		t.Fatalf("expected 'cannot delegate' error, got: %v", err)
 	}
 }

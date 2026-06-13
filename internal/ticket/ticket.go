@@ -353,7 +353,7 @@ func AddDependencies(ticketID int64, depIDs []int64, db *sql.DB) error {
 	if err != nil {
 		return fmt.Errorf("ticket.AddDependencies: begin tx: %w", err)
 	}
-	defer tx.Rollback() // no-op after successful Commit; covers all error paths
+	defer func() { _ = tx.Rollback() }() // no-op after successful Commit; covers all error paths
 
 	// Cycle check inside the transaction — atomic with the INSERTs under SQLite write serialization.
 	// Traverses upward: finds all tickets that (transitively) depend ON ticketID.

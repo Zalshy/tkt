@@ -121,8 +121,8 @@ func TestMigration_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 }
 
@@ -152,8 +152,8 @@ func TestMigration_V2ToV3(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// Assert the seeded ticket row survived.
@@ -180,8 +180,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db1.QueryRow(`SELECT version FROM schema_version`).Scan(&v1); err != nil {
 		t.Fatalf("schema_version after first Open: %v", err)
 	}
-	if v1 != 19 {
-		t.Errorf("schema_version after first Open = %d, want 19", v1)
+	if v1 != 20 {
+		t.Errorf("schema_version after first Open = %d, want 20", v1)
 	}
 	db1.Close()
 
@@ -195,8 +195,8 @@ func TestMigration_Idempotency(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&v2); err != nil {
 		t.Fatalf("schema_version after second Open: %v", err)
 	}
-	if v2 != 19 {
-		t.Errorf("schema_version after second Open = %d, want 19", v2)
+	if v2 != 20 {
+		t.Errorf("schema_version after second Open = %d, want 20", v2)
 	}
 }
 
@@ -210,17 +210,17 @@ func TestMigration_V4_RolesTableSeeded(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
-	// Assert exactly 3 rows in roles (architect, implementer, monitor).
+	// Assert exactly 4 rows in roles (architect, implementer, monitor, orchestrator).
 	var count int
 	if err := database.QueryRow(`SELECT COUNT(*) FROM roles`).Scan(&count); err != nil {
 		t.Fatalf("COUNT roles: %v", err)
 	}
-	if count != 3 {
-		t.Errorf("roles COUNT = %d, want 3", count)
+	if count != 4 {
+		t.Errorf("roles COUNT = %d, want 4", count)
 	}
 
 	// Assert architect row.
@@ -271,7 +271,7 @@ func TestMigration_V4_BaseRoleConstraint(t *testing.T) {
 	_, database := setupDBWithRoot(t)
 
 	_, insertErr := database.Exec(
-		`INSERT INTO roles (name, base_role, is_builtin) VALUES ('badactor', 'orchestrator', 0)`,
+		`INSERT INTO roles (name, base_role, is_builtin) VALUES ('badactor', 'badvalue', 0)`,
 	)
 	if insertErr == nil {
 		t.Fatal("expected CHECK constraint violation for invalid base_role, got nil error")
@@ -323,8 +323,8 @@ func TestMigration_V7_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	var name string
@@ -466,8 +466,8 @@ func TestMigration_V7_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	var count int
@@ -632,8 +632,8 @@ func TestMigration_V8_DeletesUsageRows(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// Assert all usage rows were deleted (V8) and are absent from the final ticket_log.
@@ -710,8 +710,8 @@ func TestMigration_V9_FreshDB(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// V10 renamed ticket_log_new to ticket_log — the _new table must not exist.
@@ -861,8 +861,8 @@ func TestMigration_V9_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// After V10, ticket_log_new must not exist.
@@ -1039,8 +1039,8 @@ func TestMigration_V10_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// Assert ticket_log_new does NOT exist (V10 renamed it to ticket_log).
@@ -1200,8 +1200,8 @@ func TestMigration_V11_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// After V12, ticket_dependencies_new is gone (renamed to ticket_dependencies).
@@ -1292,8 +1292,8 @@ func TestMigration_V12_DropRenameRebuild(t *testing.T) {
 	if err := database.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// ticket_dependencies_new must NOT exist after V12 (renamed to ticket_dependencies).
@@ -1453,8 +1453,8 @@ func TestMigration_V12_Backfill(t *testing.T) {
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// ticket_dependencies_new must NOT exist.
@@ -1505,13 +1505,13 @@ func TestMigrateV19_ColumnAlreadyPresent(t *testing.T) {
 	}
 	defer db2.Close()
 
-	// Assert final schema_version == 19.
+	// Assert final schema_version == 20.
 	var version int
 	if err := db2.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// Assert 'forced' column is present in ticket_log.
@@ -1539,5 +1539,45 @@ func TestMigrateV19_ColumnAlreadyPresent(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("ticket_log is missing 'forced' column after V19 migration")
+	}
+}
+
+// TestMigration_V20_OrchestratorSeeded verifies that after V20 the orchestrator
+// built-in role exists and all 4 built-in roles are present.
+func TestMigration_V20_OrchestratorSeeded(t *testing.T) {
+	_, database := setupDBWithRoot(t)
+
+	// Assert orchestrator row exists with correct fields.
+	var baseRole string
+	var isBuiltin int
+	if err := database.QueryRow(
+		`SELECT COUNT(*) FROM roles WHERE name='orchestrator' AND base_role='orchestrator' AND is_builtin=1`,
+	).Scan(&isBuiltin); err != nil {
+		t.Fatalf("SELECT orchestrator count: %v", err)
+	}
+	if isBuiltin != 1 {
+		t.Errorf("orchestrator row count = %d, want 1", isBuiltin)
+	}
+
+	// Confirm fields individually.
+	if err := database.QueryRow(
+		`SELECT base_role, is_builtin FROM roles WHERE name='orchestrator'`,
+	).Scan(&baseRole, &isBuiltin); err != nil {
+		t.Fatalf("SELECT orchestrator row: %v", err)
+	}
+	if baseRole != "orchestrator" {
+		t.Errorf("orchestrator base_role = %q, want %q", baseRole, "orchestrator")
+	}
+	if isBuiltin != 1 {
+		t.Errorf("orchestrator is_builtin = %d, want 1", isBuiltin)
+	}
+
+	// Assert all 4 built-ins present.
+	var builtinCount int
+	if err := database.QueryRow(`SELECT COUNT(*) FROM roles WHERE is_builtin=1`).Scan(&builtinCount); err != nil {
+		t.Fatalf("COUNT built-in roles: %v", err)
+	}
+	if builtinCount != 4 {
+		t.Errorf("built-in roles count = %d, want 4", builtinCount)
 	}
 }

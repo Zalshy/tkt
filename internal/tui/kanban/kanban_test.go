@@ -276,6 +276,235 @@ func TestRenderCardContent(t *testing.T) {
 	}
 }
 
+// TestColumn_ScrollDown verifies that scrollOffset increments when the cursor
+// moves past the last visible normal card.
+//
+// Column height 11 → innerH = 11-4 = 7.
+// Normal card height = 3. Two cards fit: card0=3, card1=3+1spacer=4, total=7.
+// Moving cursor to index 2 must set scrollOffset=1.
+func TestColumn_ScrollDown(t *testing.T) {
+	// height=11 → innerH=7 → fits exactly 2 normal cards
+	col := newColumn(models.StatusTodo, "TODO", 40, 11)
+	col = col.SetFocus(true)
+	col = col.SetTickets([]models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+		{ID: 3, Title: "T3", Status: models.StatusTodo},
+		{ID: 4, Title: "T4", Status: models.StatusTodo},
+	})
+
+	// cursor=0, scrollOffset should be 0
+	if col.scrollOffset != 0 {
+		t.Fatalf("initial scrollOffset = %d, want 0", col.scrollOffset)
+	}
+
+	// move to index 1 — still visible, no scroll
+	col = col.CursorDown()
+	if col.scrollOffset != 0 {
+		t.Errorf("after CursorDown to 1: scrollOffset = %d, want 0", col.scrollOffset)
+	}
+
+	// move to index 2 — exceeds visible window, must scroll
+	col = col.CursorDown()
+	if col.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", col.cursor)
+	}
+	if col.scrollOffset != 1 {
+		t.Errorf("after CursorDown to 2: scrollOffset = %d, want 1", col.scrollOffset)
+	}
+
+	// move to index 3 — must scroll again
+	col = col.CursorDown()
+	if col.scrollOffset != 2 {
+		t.Errorf("after CursorDown to 3: scrollOffset = %d, want 2", col.scrollOffset)
+	}
+}
+
+// TestColumn_ScrollUp verifies that scrollOffset decrements when the cursor
+// moves back above the current window.
+func TestColumn_ScrollUp(t *testing.T) {
+	col := newColumn(models.StatusTodo, "TODO", 40, 11)
+	col = col.SetFocus(true)
+	col = col.SetTickets([]models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+		{ID: 3, Title: "T3", Status: models.StatusTodo},
+		{ID: 4, Title: "T4", Status: models.StatusTodo},
+	})
+
+	// scroll down to index 3
+	col = col.CursorDown()
+	col = col.CursorDown()
+	col = col.CursorDown()
+	if col.scrollOffset != 2 {
+		t.Fatalf("pre-condition: scrollOffset = %d, want 2", col.scrollOffset)
+	}
+
+	// scroll back to index 2 — cursor == scrollOffset, neither condition fires
+	col = col.CursorUp()
+	if col.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", col.cursor)
+	}
+	if col.scrollOffset != 2 {
+		t.Errorf("after CursorUp to 2: scrollOffset = %d, want 2", col.scrollOffset)
+	}
+
+	// scroll back to index 1 — cursor < scrollOffset, fires: scrollOffset = 1
+	col = col.CursorUp()
+	if col.cursor != 1 {
+		t.Fatalf("cursor = %d, want 1", col.cursor)
+	}
+	if col.scrollOffset != 1 {
+		t.Errorf("after CursorUp to 1: scrollOffset = %d, want 1", col.scrollOffset)
+	}
+
+	// scroll back to index 0 — cursor < scrollOffset, fires: scrollOffset = 0
+	col = col.CursorUp()
+	if col.scrollOffset != 0 {
+		t.Errorf("after CursorUp to 0: scrollOffset = %d, want 0", col.scrollOffset)
+	}
+}
+
+// TestColumn_ScrollInProgress verifies scroll with IN_PROGRESS cards (height=4).
+//
+// Column height 13 → innerH = 13-4 = 9.
+// IN_PROGRESS card height = 4. Two cards fit: card0=4, card1=4+1spacer=5, total=9.
+// Moving cursor to index 2 must set scrollOffset=1.
+func TestColumn_ScrollInProgress(t *testing.T) {
+	col := newColumn(models.StatusPlanning, "PLANNING", 40, 13)
+	col = col.SetFocus(true)
+	col = col.SetTickets([]models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusInProgress},
+		{ID: 2, Title: "T2", Status: models.StatusInProgress},
+		{ID: 3, Title: "T3", Status: models.StatusInProgress},
+	})
+
+	// index 0 and 1 visible, no scroll yet
+	col = col.CursorDown()
+	if col.scrollOffset != 0 {
+		t.Errorf("after CursorDown to 1: scrollOffset = %d, want 0", col.scrollOffset)
+	}
+
+	// index 2 exceeds window → must scroll
+	col = col.CursorDown()
+	if col.cursor != 2 {
+		t.Fatalf("cursor = %d, want 2", col.cursor)
+	}
+	if col.scrollOffset != 1 {
+		t.Errorf("after CursorDown to 2: scrollOffset = %d, want 1", col.scrollOffset)
+	}
+}
+
+// TestColumn_RestoreCursor verifies that RestoreCursor positions the cursor on
+// the ticket with the given ID and adjusts scroll accordingly.
+func TestColumn_RestoreCursor(t *testing.T) {
+	// height=11 → innerH=7 → fits exactly 2 normal cards
+	col := newColumn(models.StatusTodo, "TODO", 40, 11)
+	col = col.SetFocus(true)
+	tickets := []models.Ticket{
+		{ID: 10, Title: "T1", Status: models.StatusTodo},
+		{ID: 20, Title: "T2", Status: models.StatusTodo},
+		{ID: 30, Title: "T3", Status: models.StatusTodo},
+		{ID: 40, Title: "T4", Status: models.StatusTodo},
+		{ID: 50, Title: "T5", Status: models.StatusTodo},
+	}
+	col = col.SetTickets(tickets)
+
+	// RestoreCursor to index 3 (ID=40)
+	col = col.RestoreCursor(40)
+	if col.cursor != 3 {
+		t.Fatalf("cursor = %d, want 3", col.cursor)
+	}
+	// scrollOffset must have adjusted: index 3 exceeds window of 2 from offset 0
+	if col.scrollOffset == 0 {
+		t.Errorf("scrollOffset = 0, expected > 0 after restoring cursor to index 3")
+	}
+	if got := col.SelectedTicket(); got == nil || got.ID != 40 {
+		t.Fatalf("SelectedTicket = %v, want ID 40", got)
+	}
+}
+
+// TestColumn_RestoreCursor_NotFound verifies that RestoreCursor returns c
+// unchanged when the ID does not exist in the column.
+func TestColumn_RestoreCursor_NotFound(t *testing.T) {
+	col := newColumn(models.StatusTodo, "TODO", 40, 20)
+	col = col.SetFocus(true)
+	col = col.SetTickets([]models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+	})
+	col = col.CursorDown() // cursor at 1
+	col = col.RestoreCursor(999)
+	// cursor should be unchanged at 1
+	if col.cursor != 1 {
+		t.Fatalf("cursor = %d after RestoreCursor(999), want 1 (unchanged)", col.cursor)
+	}
+}
+
+// TestBoard_SetTickets_PreservesCursor verifies that SetTickets preserves the
+// cursor position in each column when the same tickets are reloaded.
+func TestBoard_SetTickets_PreservesCursor(t *testing.T) {
+	b := New(200, 40)
+	tickets := []models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+		{ID: 3, Title: "T3", Status: models.StatusTodo},
+	}
+	b = b.SetTickets(tickets)
+
+	// Move cursor to index 2 in TODO column (activeCol=0)
+	b.columns[0] = b.columns[0].CursorDown()
+	b.columns[0] = b.columns[0].CursorDown()
+	if got := b.columns[0].SelectedTicket(); got == nil || got.ID != 3 {
+		t.Fatalf("pre-condition: cursor at ID %v, want 3", got)
+	}
+
+	// Reload same tickets
+	b = b.SetTickets(tickets)
+
+	// Cursor should still be at index 2 (ID=3)
+	if got := b.columns[0].SelectedTicket(); got == nil || got.ID != 3 {
+		t.Fatalf("after SetTickets: cursor at ID %v, want 3 (preserved)", got)
+	}
+	if b.columns[0].cursor != 2 {
+		t.Errorf("cursor index = %d, want 2", b.columns[0].cursor)
+	}
+}
+
+// TestBoard_SetTickets_RemovedTicket verifies that when the cursored ticket
+// disappears from the next load, cursor resets to 0.
+func TestBoard_SetTickets_RemovedTicket(t *testing.T) {
+	b := New(200, 40)
+	tickets := []models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+		{ID: 3, Title: "T3", Status: models.StatusTodo},
+	}
+	b = b.SetTickets(tickets)
+
+	// Move cursor to index 2 (ID=3)
+	b.columns[0] = b.columns[0].CursorDown()
+	b.columns[0] = b.columns[0].CursorDown()
+	if got := b.columns[0].SelectedTicket(); got == nil || got.ID != 3 {
+		t.Fatalf("pre-condition: cursor at ID %v, want 3", got)
+	}
+
+	// Reload without ID=3
+	ticketsReduced := []models.Ticket{
+		{ID: 1, Title: "T1", Status: models.StatusTodo},
+		{ID: 2, Title: "T2", Status: models.StatusTodo},
+	}
+	b = b.SetTickets(ticketsReduced)
+
+	// Cursor should reset to 0 (ID=1)
+	if b.columns[0].cursor != 0 {
+		t.Errorf("cursor = %d after removed ticket, want 0", b.columns[0].cursor)
+	}
+	if got := b.columns[0].SelectedTicket(); got == nil || got.ID != 1 {
+		t.Fatalf("SelectedTicket = %v, want ID 1", got)
+	}
+}
+
 func TestCardStringHelpers(t *testing.T) {
 	if got := truncate("abcdef", 4); got != "abc…" {
 		t.Fatalf("truncate = %q", got)

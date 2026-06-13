@@ -40,7 +40,9 @@ var roleDeleteCmd = &cobra.Command{
 
 func init() {
 	roleCreateCmd.Flags().StringVar(&roleLike, "like", "", "base role: architect or implementer (required)")
-	roleCreateCmd.MarkFlagRequired("like")
+	if err := roleCreateCmd.MarkFlagRequired("like"); err != nil {
+		panic(err) // programmer error: flag "like" must exist
+	}
 
 	roleCmd.AddCommand(roleCreateCmd)
 	roleCmd.AddCommand(roleListCmd)

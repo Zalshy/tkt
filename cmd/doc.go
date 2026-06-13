@@ -126,10 +126,10 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 	sess, err := session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf(msgNoSession)
+			return errors.New(msgNoSession)
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			return fmt.Errorf(msgExpiredSession)
+			return errors.New(msgExpiredSession)
 		}
 		return fmt.Errorf("doc add: load session: %w", err)
 	}
@@ -179,8 +179,8 @@ func runDocAdd(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("doc add: %w", err)
 	}
 
-	editorArgs := append(extraArgs, tmpPath)
-	editorCmd := exec.Command(bin, editorArgs...)
+	extraArgs = append(extraArgs, tmpPath)
+	editorCmd := exec.Command(bin, extraArgs...)
 	editorCmd.Stdin = os.Stdin
 	editorCmd.Stdout = os.Stdout
 	editorCmd.Stderr = os.Stderr
@@ -243,10 +243,10 @@ func runDocArchive(cmd *cobra.Command, args []string) error {
 	_, err = session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf(msgNoSession)
+			return errors.New(msgNoSession)
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			return fmt.Errorf(msgExpiredSession)
+			return errors.New(msgExpiredSession)
 		}
 		return fmt.Errorf("doc archive: load session: %w", err)
 	}

@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
+	"github.com/zalshy/tkt/internal/config"
 	"github.com/zalshy/tkt/internal/models"
 	"github.com/zalshy/tkt/internal/tui/kanban"
 	"github.com/zalshy/tkt/internal/tui/modal"
@@ -14,7 +15,7 @@ import (
 
 // TestRootModel_WindowSize verifies that a WindowSizeMsg updates width and height.
 func TestRootModel_WindowSize(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -31,7 +32,7 @@ func TestRootModel_WindowSize(t *testing.T) {
 // TestRootModel_SizeGuard_Triggers verifies that a terminal smaller than 60×20
 // renders the size-guard error message.
 func TestRootModel_SizeGuard_Triggers(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m.width = 59
 	m.height = 20
 	view := testutil.StripANSI(m.View())
@@ -43,7 +44,7 @@ func TestRootModel_SizeGuard_Triggers(t *testing.T) {
 // TestRootModel_SizeGuard_ExactThreshold verifies that a terminal of exactly
 // 60×20 renders normal output (not the size-guard error).
 func TestRootModel_SizeGuard_ExactThreshold(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m.width = 60
 	m.height = 20
 	view := testutil.StripANSI(m.View())
@@ -54,7 +55,7 @@ func TestRootModel_SizeGuard_ExactThreshold(t *testing.T) {
 
 // TestBoard_ColumnSwitch verifies that left/right keys move the active column.
 func TestBoard_ColumnSwitch(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -92,7 +93,7 @@ func TestBoard_ColumnSwitch(t *testing.T) {
 // TestRootModel_WindowSizeUpdatesBoard verifies that a WindowSizeMsg propagates
 // to the board component and the board produces non-empty output.
 func TestRootModel_WindowSizeUpdatesBoard(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -108,7 +109,7 @@ func TestRootModel_WindowSizeUpdatesBoard(t *testing.T) {
 // TestRootModel_SearchOpenClose verifies that '/' opens the search overlay and
 // Esc closes it.
 func TestRootModel_SearchOpenClose(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -141,7 +142,7 @@ func TestRootModel_SearchOpenClose(t *testing.T) {
 // is selected in the active board column causes a non-nil cmd to be returned.
 // The cmd is NOT invoked — it would panic with a nil db.
 func TestRootModel_EnterFiresDetailLoad(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -170,7 +171,7 @@ func TestRootModel_EnterFiresDetailLoad(t *testing.T) {
 // TestRootModel_HelpModalOpenClose verifies that '?' opens the help modal and
 // Esc closes it.
 func TestRootModel_HelpModalOpenClose(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -205,7 +206,7 @@ func TestRootModel_HelpModalOpenClose(t *testing.T) {
 // TestRootModel_HelpModalEscPriority verifies that when the help modal is open,
 // Esc dismisses the modal rather than closing the search overlay.
 func TestRootModel_HelpModalEscPriority(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -244,7 +245,7 @@ func TestRootModel_HelpModalEscPriority(t *testing.T) {
 // TestRootModel_ToastExpiredDismisses verifies that ToastExpiredMsg causes an
 // active toast modal to be dismissed.
 func TestRootModel_ToastExpiredDismisses(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -271,7 +272,7 @@ func TestRootModel_ToastExpiredDismisses(t *testing.T) {
 // TestRootModel_NavJK_ForwardedToBoard verifies that 'j' and 'k' move the board
 // cursor when search is inactive and no modal is open.
 func TestRootModel_NavJK_ForwardedToBoard(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -320,7 +321,7 @@ func TestRootModel_NavJK_ForwardedToBoard(t *testing.T) {
 // TestRootModel_NavJK_NotForwardedWhenSearchActive verifies that 'j' does NOT
 // move the board cursor while the search overlay is open.
 func TestRootModel_NavJK_NotForwardedWhenSearchActive(t *testing.T) {
-	m := NewRootModel(nil, nil, "")
+	m := NewRootModel(nil, nil, "", nil)
 	m2, _ := testutil.Update(m, testutil.WindowSize(120, 40))
 	root, ok := m2.(RootModel)
 	if !ok {
@@ -365,5 +366,145 @@ func TestRootModel_NavJK_NotForwardedWhenSearchActive(t *testing.T) {
 	// must not have been moved as a navigation key.
 	if after != nil && before != nil && after.ID != before.ID {
 		t.Errorf("cursor moved while search active: before ID=%d, after ID=%d — 'j' routed to board instead of search", before.ID, after.ID)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// archiveKeep tests
+// ---------------------------------------------------------------------------
+
+func TestArchiveKeep_Nil(t *testing.T) {
+	if got := archiveKeep(nil); got != 10 {
+		t.Errorf("archiveKeep(nil) = %d, want 10", got)
+	}
+}
+
+func TestArchiveKeep_Zero(t *testing.T) {
+	cfg := &config.ProjectConfig{ArchiveKeep: 0}
+	if got := archiveKeep(cfg); got != 10 {
+		t.Errorf("archiveKeep({ArchiveKeep:0}) = %d, want 10", got)
+	}
+}
+
+func TestArchiveKeep_Custom(t *testing.T) {
+	cfg := &config.ProjectConfig{ArchiveKeep: 5}
+	if got := archiveKeep(cfg); got != 5 {
+		t.Errorf("archiveKeep({ArchiveKeep:5}) = %d, want 5", got)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// isColNav / isCursorNav tests
+// ---------------------------------------------------------------------------
+
+func TestIsColNav(t *testing.T) {
+	trueKeys := []string{"left", "right", "h", "l"}
+	falseKeys := []string{"j", "k", "up", "down", "enter", "esc"}
+	for _, k := range trueKeys {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		if k == "left" {
+			msg = tea.KeyMsg{Type: tea.KeyLeft}
+		} else if k == "right" {
+			msg = tea.KeyMsg{Type: tea.KeyRight}
+		}
+		if !isColNav(msg) {
+			t.Errorf("isColNav(%q) = false, want true", k)
+		}
+	}
+	for _, k := range falseKeys {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		if isColNav(msg) {
+			t.Errorf("isColNav(%q) = true, want false", k)
+		}
+	}
+}
+
+func TestIsCursorNav(t *testing.T) {
+	trueKeys := []struct {
+		s   string
+		typ tea.KeyType
+	}{
+		{"j", tea.KeyRunes},
+		{"k", tea.KeyRunes},
+		{"", tea.KeyUp},
+		{"", tea.KeyDown},
+	}
+	falseKeys := []string{"h", "l", "left", "right"}
+	for _, tk := range trueKeys {
+		msg := tea.KeyMsg{Type: tk.typ}
+		if tk.s != "" {
+			msg.Runes = []rune(tk.s)
+		}
+		if !isCursorNav(msg) {
+			t.Errorf("isCursorNav(%q type=%v) = false, want true", tk.s, tk.typ)
+		}
+	}
+	for _, k := range falseKeys {
+		msg := tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(k)}
+		if isCursorNav(msg) {
+			t.Errorf("isCursorNav(%q) = true, want false", k)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// ticketsForVisualCol / replaceStatusTickets tests
+// ---------------------------------------------------------------------------
+
+func TestTicketsForVisualCol_InProgressInPlanningBucket(t *testing.T) {
+	tickets := []models.Ticket{
+		{ID: 1, Status: models.StatusTodo},
+		{ID: 2, Status: models.StatusPlanning},
+		{ID: 3, Status: models.StatusInProgress},
+		{ID: 4, Status: models.StatusDone},
+	}
+	got := ticketsForVisualCol(tickets, models.StatusPlanning)
+	if len(got) != 2 {
+		t.Fatalf("ticketsForVisualCol(Planning) = %d tickets, want 2 (Planning + InProgress)", len(got))
+	}
+	ids := map[int64]bool{}
+	for _, tkt := range got {
+		ids[tkt.ID] = true
+	}
+	if !ids[2] || !ids[3] {
+		t.Errorf("expected IDs 2 and 3 in Planning bucket, got IDs: %v", ids)
+	}
+}
+
+func TestTicketsForVisualCol_VerifiedInDoneBucket(t *testing.T) {
+	tickets := []models.Ticket{
+		{ID: 5, Status: models.StatusDone},
+		{ID: 6, Status: models.StatusVerified},
+	}
+	got := ticketsForVisualCol(tickets, models.StatusDone)
+	if len(got) != 2 {
+		t.Fatalf("ticketsForVisualCol(Done) = %d tickets, want 2 (Done + Verified)", len(got))
+	}
+}
+
+func TestReplaceStatusTickets_Correct(t *testing.T) {
+	all := []models.Ticket{
+		{ID: 1, Status: models.StatusTodo},
+		{ID: 2, Status: models.StatusPlanning},
+		{ID: 3, Status: models.StatusInProgress},
+	}
+	// Replace Planning bucket (Planning + InProgress) with single new ticket.
+	replacement := []models.Ticket{{ID: 99, Status: models.StatusPlanning}}
+	got := replaceStatusTickets(all, models.StatusPlanning, replacement)
+
+	// Should contain original Todo ticket plus replacement.
+	ids := map[int64]bool{}
+	for _, tkt := range got {
+		ids[tkt.ID] = true
+	}
+	if !ids[1] {
+		t.Error("expected original Todo ticket ID=1 preserved")
+	}
+	if !ids[99] {
+		t.Error("expected replacement ticket ID=99 present")
+	}
+	// Old Planning and InProgress should be gone.
+	if ids[2] || ids[3] {
+		t.Errorf("expected old Planning/InProgress tickets removed, but got IDs: %v", ids)
 	}
 }

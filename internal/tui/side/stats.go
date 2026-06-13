@@ -116,8 +116,8 @@ func renderStatBox(title string, rows []statRow, width int) string {
 		// The transparent right half of each character cell acts as a very
 		// thin natural separator — no explicit gap character needed.
 		// filledCells = exact count; cap at barW to avoid overflow.
-		const cellW = 1       // 1 char per ticket
-		const ellipsisW = 3   // "..."
+		const cellW = 1     // 1 char per ticket
+		const ellipsisW = 3 // "..."
 
 		overflow := r.count > barW
 		showCells := r.count
@@ -204,7 +204,10 @@ func renderStatsRow(s statsData, totalWidth int) string {
 	}
 
 	// — By Type — top 5
-	type nc struct{ name string; count int }
+	type nc struct {
+		name  string
+		count int
+	}
 	var types []nc
 	for k, v := range s.byMainType {
 		types = append(types, nc{k, v})

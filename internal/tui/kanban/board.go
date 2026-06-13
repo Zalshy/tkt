@@ -101,6 +101,14 @@ func (b Board) SetSize(width, height int) Board {
 //   - StatusDone       → DONE column      (rendered with plain style)
 //   - StatusVerified   → DONE column      (rendered with VERIFIED tag)
 func (b Board) SetTickets(tickets []models.Ticket) Board {
+	// Save selected ticket IDs per column before replacing ticket slices.
+	var savedIDs [numCols]int64
+	for i := range b.columns {
+		if t := b.columns[i].SelectedTicket(); t != nil {
+			savedIDs[i] = t.ID
+		}
+	}
+
 	buckets := make(map[models.Status][]models.Ticket)
 	for _, t := range tickets {
 		switch t.Status {
@@ -114,6 +122,9 @@ func (b Board) SetTickets(tickets []models.Ticket) Board {
 	}
 	for i, def := range columnDefs {
 		b.columns[i] = b.columns[i].SetTickets(buckets[def.status])
+		if savedIDs[i] > 0 {
+			b.columns[i] = b.columns[i].RestoreCursor(savedIDs[i])
+		}
 	}
 	return b
 }

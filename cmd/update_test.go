@@ -17,7 +17,7 @@ func runUpdateInDir(t *testing.T, dir string, args []string, setupFlags func()) 
 		rootDir = savedRootDir
 		updateCmd.SetOut(nil)
 		// Reset flags to defaults so tests don't bleed into each other.
-		updateCmd.Flags().Set("type", "")      //nolint:errcheck
+		updateCmd.Flags().Set("type", "")       //nolint:errcheck
 		updateCmd.Flags().Set("attention", "0") //nolint:errcheck
 		// Reset Changed state by re-parsing with no args (cobra tracks Changed via lookup).
 		// Simplest reliable reset: mark both as not changed by re-creating flag lookup state.

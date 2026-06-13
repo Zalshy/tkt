@@ -48,10 +48,11 @@ func pollCmd(d time.Duration) tea.Cmd {
 // RootModel is the top-level BubbleTea model that owns layout, size management,
 // and Kanban board state. All child components are mounted from here.
 type RootModel struct {
-	db    *sql.DB
-	cfg   *config.ProjectConfig
-	root  string
-	width int
+	db     *sql.DB
+	cfg    *config.ProjectConfig
+	root   string
+	sess   *models.Session
+	width  int
 	height int
 
 	// Child components
@@ -89,7 +90,7 @@ type RootModel struct {
 // The header is initialised here (not in Init) because Init uses a value
 // receiver — any assignments inside Init are silently discarded.
 // No I/O is performed.
-func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel {
+func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string, sess *models.Session) RootModel {
 	var interval time.Duration
 	if cfg != nil {
 		interval = time.Duration(cfg.MonitorInterval) * time.Second
@@ -101,6 +102,7 @@ func NewRootModel(db *sql.DB, cfg *config.ProjectConfig, root string) RootModel 
 		db:           db,
 		cfg:          cfg,
 		root:         root,
+		sess:         sess,
 		hdr:          header.New(0, 0),
 		board:        kanban.New(0, 0),
 		detail:       ticketdetail.New(0, 0, false),
@@ -250,7 +252,7 @@ func (m RootModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.modals = m.modals.Dismiss(modal.KindConfirm)
 				if len(m.pendingArchive) > 0 {
 					m.bulkArchiving = true
-					return m, bulkArchiveCmd(m.db, m.root, m.pendingArchive)
+					return m, bulkArchiveCmd(m.db, m.sess, m.pendingArchive)
 				}
 			default:
 				// n, N, esc, or any other key cancels
@@ -401,11 +403,10 @@ func renderConfirmModal(toArchive, keep int) string {
 
 // bulkArchiveCmd returns a tea.Cmd that sequentially archives tickets in a single
 // goroutine. NOT a fan-out — each ticket is processed after the previous completes.
-func bulkArchiveCmd(db *sql.DB, root string, tickets []models.Ticket) tea.Cmd {
+func bulkArchiveCmd(db *sql.DB, sess *models.Session, tickets []models.Ticket) tea.Cmd {
 	return func() tea.Msg {
-		sess, err := session.LoadActive(root, db)
-		if err != nil {
-			return bulkArchiveDoneMsg{err: fmt.Errorf("bulk archive: load session: %w", err)}
+		if sess == nil {
+			return bulkArchiveDoneMsg{err: fmt.Errorf("bulk archive: no active session")}
 		}
 		archived := 0
 		var failed []string

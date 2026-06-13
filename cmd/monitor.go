@@ -60,7 +60,7 @@ func runMonitor(cmd *cobra.Command, args []string) error {
 	var model tea.Model
 	switch mode {
 	case "", "minimal":
-		model = tui.NewRootModel(database, cfg, root)
+		model = tui.NewRootModel(database, cfg, root, monSess)
 	case "side":
 		model = side.NewRootModel(database, cfg, root)
 	default:

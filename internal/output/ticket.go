@@ -56,7 +56,6 @@ func RenderDependencies(deps []models.Ticket) string {
 	return b.String()
 }
 
-
 // FormatIntComma formats an integer with thousands separators (e.g. 78155 → "78,155").
 func FormatIntComma(n int) string {
 	s := fmt.Sprintf("%d", n)

@@ -23,7 +23,7 @@ var mcpCmd = &cobra.Command{
 }
 
 func init() {
-	mcpCmd.Flags().StringVar(&mcpRole, "role", "implementer", "session role for write tools (architect|implementer)")
+	mcpCmd.Flags().StringVar(&mcpRole, "role", "implementer", "session role for write tools (architect|implementer|orchestrator)")
 	mcpCmd.Flags().BoolVar(&mcpReadonly, "readonly", false, "register read-only tools only")
 	rootCmd.AddCommand(mcpCmd)
 }
@@ -46,7 +46,7 @@ func runMCP(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		defer session.ExpireByID(mcpSess.ID, database)
+		defer func() { _ = session.ExpireByID(mcpSess.ID, database) }()
 	}
 
 	s := mcppkg.NewServer(root, database, mcpSess)

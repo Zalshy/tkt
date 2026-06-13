@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/zalshy/tkt/internal/models"
+	"github.com/zalshy/tkt/internal/state"
 	statsPkg "github.com/zalshy/tkt/internal/stats"
 )
 
@@ -296,12 +297,12 @@ func TestRenderTicket_ColumnAlignment(t *testing.T) {
 
 func TestFormatDuration(t *testing.T) {
 	tests := map[time.Duration]string{
-		0:                                  "0s",
-		45 * time.Second:                   "45s",
-		90 * time.Second:                   "1m 30s",
-		25*time.Hour + 2*time.Minute:       "1d 1h 2m",
-		-(2*time.Hour + 30*time.Second):    "-2h 30s",
-		1500 * time.Millisecond:            "2s",
+		0:                               "0s",
+		45 * time.Second:                "45s",
+		90 * time.Second:                "1m 30s",
+		25*time.Hour + 2*time.Minute:    "1d 1h 2m",
+		-(2*time.Hour + 30*time.Second): "-2h 30s",
+		1500 * time.Millisecond:         "2s",
 	}
 	for input, want := range tests {
 		if got := FormatDuration(input); got != want {
@@ -397,6 +398,179 @@ func TestStatsReportJSON(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// WriteAdvanceCheck tests
+// ---------------------------------------------------------------------------
+
+func TestWriteAdvanceCheck_DryRun_Allowed(t *testing.T) {
+	check := state.CheckResult{
+		TicketID: "42",
+		From:     models.StatusPlanning,
+		To:       models.StatusInProgress,
+		Allowed:  true,
+		Reason:   "all good",
+	}
+	var buf bytes.Buffer
+	WriteAdvanceCheck(&buf, check, false)
+	out := buf.String()
+	if !strings.Contains(out, "#42") {
+		t.Errorf("expected ticket ID in output, got: %q", out)
+	}
+	if !strings.Contains(out, "would advance") {
+		t.Errorf("expected 'would advance' in output, got: %q", out)
+	}
+	// Reason not shown when allowed and not explain mode.
+	if strings.Contains(out, "Reason:") {
+		t.Errorf("unexpected 'Reason:' in dry-run allowed output: %q", out)
+	}
+}
+
+func TestWriteAdvanceCheck_DryRun_Blocked(t *testing.T) {
+	check := state.CheckResult{
+		TicketID: "7",
+		From:     models.StatusTodo,
+		To:       models.StatusDone,
+		Allowed:  false,
+		Reason:   "not allowed to skip states",
+	}
+	var buf bytes.Buffer
+	WriteAdvanceCheck(&buf, check, false)
+	out := buf.String()
+	if !strings.Contains(out, "blocked") {
+		t.Errorf("expected 'blocked' in output, got: %q", out)
+	}
+	if !strings.Contains(out, "not allowed to skip states") {
+		t.Errorf("expected reason in blocked output, got: %q", out)
+	}
+}
+
+func TestWriteAdvanceCheck_Explain(t *testing.T) {
+	check := state.CheckResult{
+		TicketID:     "5",
+		From:         models.StatusPlanning,
+		To:           models.StatusInProgress,
+		Allowed:      false,
+		Forced:       true,
+		Reason:       "wrong role",
+		PlanRequired: true,
+		PlanPresent:  false,
+		Hints:        []string{"submit plan first"},
+	}
+	var buf bytes.Buffer
+	WriteAdvanceCheck(&buf, check, true)
+	out := buf.String()
+	for _, want := range []string{
+		"Allowed: false",
+		"Forced: true",
+		"Reason: wrong role",
+		"Plan required: true",
+		"Plan present: false",
+		"submit plan first",
+	} {
+		if !strings.Contains(out, want) {
+			t.Errorf("explain output missing %q in: %q", want, out)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// Plural tests
+// ---------------------------------------------------------------------------
+
+func TestPlural(t *testing.T) {
+	tests := []struct {
+		n        int
+		singular string
+		plural   string
+		want     string
+	}{
+		{1, "ticket", "tickets", "ticket"},
+		{2, "ticket", "tickets", "tickets"},
+		{0, "ticket", "tickets", "tickets"},
+		{100, "item", "items", "items"},
+	}
+	for _, tt := range tests {
+		got := Plural(tt.n, tt.singular, tt.plural)
+		if got != tt.want {
+			t.Errorf("Plural(%d, %q, %q) = %q, want %q", tt.n, tt.singular, tt.plural, got, tt.want)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RoleColor tests
+// ---------------------------------------------------------------------------
+
+func TestRoleColor_NonEmpty(t *testing.T) {
+	roles := []models.Role{
+		models.RoleArchitect,
+		models.RoleImplementer,
+		models.RoleMonitor,
+		models.RoleOrchestrator,
+		models.Role("unknown"),
+	}
+	for _, r := range roles {
+		got := RoleColor(r)
+		if got == "" {
+			t.Errorf("RoleColor(%q) returned empty string", r)
+		}
+	}
+}
+
+// ---------------------------------------------------------------------------
+// RenderContext / RenderContextList tests
+// ---------------------------------------------------------------------------
+
+func TestRenderContext_ContainsFields(t *testing.T) {
+	c := models.Context{
+		ID:        3,
+		Title:     "Do not call DB in tests",
+		Body:      "Use setupDB helper and real SQLite.",
+		CreatedBy: "arch-alice",
+		CreatedAt: time.Date(2026, 1, 15, 9, 0, 0, 0, time.UTC),
+	}
+	out := RenderContext(c)
+	for _, want := range []string{"Do not call DB in tests", "Use setupDB helper", "arch-alice"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("RenderContext missing %q in: %q", want, out)
+		}
+	}
+}
+
+func TestRenderContextList_Empty(t *testing.T) {
+	out := RenderContextList(nil)
+	if !strings.Contains(out, "no context entries") {
+		t.Errorf("RenderContextList(nil) = %q, want 'no context entries'", out)
+	}
+}
+
+func TestRenderContextList_Single(t *testing.T) {
+	entries := []models.Context{
+		{ID: 1, Title: "Caveat one", Body: "Body text.", CreatedBy: "impl-bob", CreatedAt: time.Now()},
+	}
+	out := RenderContextList(entries)
+	if !strings.Contains(out, "Caveat one") {
+		t.Errorf("RenderContextList missing title, got: %q", out)
+	}
+	if !strings.Contains(out, "1 context entry") {
+		t.Errorf("RenderContextList missing singular footer, got: %q", out)
+	}
+}
+
+func TestRenderContextList_Multiple(t *testing.T) {
+	entries := []models.Context{
+		{ID: 1, Title: "First", Body: "B1", CreatedBy: "s1", CreatedAt: time.Now()},
+		{ID: 2, Title: "Second", Body: "B2", CreatedBy: "s2", CreatedAt: time.Now()},
+	}
+	out := RenderContextList(entries)
+	if !strings.Contains(out, "First") || !strings.Contains(out, "Second") {
+		t.Errorf("RenderContextList missing entries, got: %q", out)
+	}
+	if !strings.Contains(out, "2 context entries") {
+		t.Errorf("RenderContextList missing plural footer, got: %q", out)
+	}
+}
+
 func sampleStatsReport() statsPkg.Report {
 	day := time.Date(2026, 5, 23, 0, 0, 0, 0, time.UTC)
 	return statsPkg.Report{
@@ -412,8 +586,8 @@ func sampleStatsReport() statsPkg.Report {
 			Trend:   []statsPkg.TimeDurationPoint{{Time: day, Duration: time.Hour}, {Time: day.AddDate(0, 0, 1), Duration: 2 * time.Hour}},
 		},
 		Throughput: statsPkg.Throughput{
-			Total: 5,
-			ByDay: []statsPkg.TimeCountPoint{{Time: day, Count: 1}, {Time: day.AddDate(0, 0, 1), Count: 3}},
+			Total:  5,
+			ByDay:  []statsPkg.TimeCountPoint{{Time: day, Count: 1}, {Time: day.AddDate(0, 0, 1), Count: 3}},
 			ByWeek: []statsPkg.TimeCountPoint{{Time: day, Count: 0}, {Time: day.AddDate(0, 0, 7), Count: 2}},
 		},
 		ResourceBurn: statsPkg.ResourceBurn{

@@ -11,7 +11,7 @@ type counterModel struct {
 	count int
 }
 
-func (m counterModel) Init() tea.Cmd                           { return nil }
+func (m counterModel) Init() tea.Cmd { return nil }
 func (m counterModel) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 	m.count++
 	return m, nil
@@ -21,7 +21,7 @@ func (m counterModel) View() string { return "" }
 // cmdModel returns a fixed non-nil tea.Cmd on every Update call.
 type cmdModel struct{}
 
-func (m cmdModel) Init() tea.Cmd                           { return nil }
+func (m cmdModel) Init() tea.Cmd { return nil }
 func (m cmdModel) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 	return m, func() tea.Msg { return nil }
 }
@@ -32,7 +32,7 @@ type mixedModel struct {
 	calls int
 }
 
-func (m mixedModel) Init() tea.Cmd                           { return nil }
+func (m mixedModel) Init() tea.Cmd { return nil }
 func (m mixedModel) Update(_ tea.Msg) (tea.Model, tea.Cmd) {
 	m.calls++
 	if m.calls == 1 {

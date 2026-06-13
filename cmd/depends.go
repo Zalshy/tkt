@@ -54,10 +54,10 @@ func runDepends(cmd *cobra.Command, args []string) error {
 	_, err = session.LoadActive(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
-			return fmt.Errorf(msgNoSession)
+			return errors.New(msgNoSession)
 		}
 		if errors.Is(err, session.ErrExpiredSession) {
-			return fmt.Errorf(msgExpiredSession)
+			return errors.New(msgExpiredSession)
 		}
 		return fmt.Errorf("depends: load session: %w", err)
 	}

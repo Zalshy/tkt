@@ -6,7 +6,6 @@ import (
 	"testing"
 )
 
-
 func TestOpen_NewFile(t *testing.T) {
 	dir := t.TempDir()
 	tktDir := filepath.Join(dir, ".tkt")
@@ -217,8 +216,8 @@ func TestOpen_SchemaVersion(t *testing.T) {
 	if err := db.QueryRow(`SELECT version FROM schema_version`).Scan(&version); err != nil {
 		t.Fatalf("SELECT schema_version: %v", err)
 	}
-	if version != 19 {
-		t.Errorf("schema_version = %d, want 19", version)
+	if version != 20 {
+		t.Errorf("schema_version = %d, want 20", version)
 	}
 
 	// Ensure exactly one row in schema_version.
