@@ -14,6 +14,11 @@ const version = "0.5.0"
 // locate the project root. Empty string means "use cwd / walk upward".
 var rootDir string
 
+// sessionOverride is set by the persistent --session flag. When non-empty, resolveSession
+// resolves the actor directly from the DB by id-or-name instead of reading the .tkt/session
+// file pointer. Empty string means "use the file pointer" (existing LoadActive behavior).
+var sessionOverride string
+
 var rootCmd = &cobra.Command{
 	Use:     "tkt",
 	Short:   "Project-local ticket CLI",
@@ -32,6 +37,7 @@ func Execute() {
 func init() {
 	// Persistent flag available to every subcommand.
 	rootCmd.PersistentFlags().StringVar(&rootDir, "dir", "", "override project root directory (default: cwd or nearest .tkt/ parent)")
+	rootCmd.PersistentFlags().StringVar(&sessionOverride, "session", "", "resolve actor session by ID or name, bypassing the .tkt/session file for this invocation")
 
 	// Register implemented commands.
 	rootCmd.AddCommand(initCmd)

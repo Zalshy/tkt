@@ -171,3 +171,64 @@ func TestComment_MultiID_PartialFailure(t *testing.T) {
 		t.Errorf("expected '#%s' (success) in output, got: %q", id1, out)
 	}
 }
+
+// TestComment_SessionFlagByULID verifies --session <ulid> resolves the flagged session
+// (not the file-pointer session) for a comment append, and that the resulting log
+// entry's SessionName matches the flag-resolved session while the file pointer is left
+// untouched (still pointing at the original session).
+func TestComment_SessionFlagByULID(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	// File-pointer session.
+	seedSession(t, dir, "impl-comment-filept")
+	// Flag-only session, never written to the file.
+	seedNamedSession(t, dir, "impl-comment-ulid-001", "comment-flag-session", "implementer")
+
+	id := seedTicketWithStatus(t, dir, "Comment target", "TODO")
+
+	sessionFile := filepath.Join(dir, ".tkt", "session")
+	before, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Fatalf("read session file before: %v", err)
+	}
+
+	savedOverride := sessionOverride
+	defer func() { sessionOverride = savedOverride }()
+
+	out, err := runCommentInDir(t, dir, []string{id, "flagged comment"}, func() {
+		sessionOverride = "impl-comment-ulid-001"
+	})
+	if err != nil {
+		t.Fatalf("runComment: %v", err)
+	}
+	if !strings.Contains(out, fmt.Sprintf("#%s", id)) {
+		t.Fatalf("expected ticket id in output, got %q", out)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer database.Close()
+	entries, err := tktlog.GetAll(context.Background(), id, database)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("log entries = %+v, want 1 entry", entries)
+	}
+	if entries[0].SessionName != "comment-flag-session" {
+		t.Errorf("SessionName = %q, want %q (flag-resolved session)", entries[0].SessionName, "comment-flag-session")
+	}
+
+	// File pointer must be left untouched.
+	after, err := os.ReadFile(sessionFile)
+	if err != nil {
+		t.Fatalf("read session file after: %v", err)
+	}
+	if string(after) != string(before) {
+		t.Errorf("session file changed: before=%q after=%q, want untouched", before, after)
+	}
+}

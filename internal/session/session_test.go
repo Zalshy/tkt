@@ -428,6 +428,128 @@ func TestLoadActive_UnknownRole_Error(t *testing.T) {
 	}
 }
 
+// ---------------------------------------------------------------------------
+// LoadByIDOrName tests
+// ---------------------------------------------------------------------------
+
+// TestLoadByIDOrName_ResolvesByID verifies LoadByIDOrName resolves a known session
+// by its ULID and populates EffectiveRole and a bumped LastActive.
+func TestLoadByIDOrName_ResolvesByID(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	created, err := Create(models.RoleArchitect, "", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	loaded, err := LoadByIDOrName(created.ID, sqlDB)
+	if err != nil {
+		t.Fatalf("LoadByIDOrName: %v", err)
+	}
+	if loaded.ID != created.ID {
+		t.Errorf("loaded ID = %q, want %q", loaded.ID, created.ID)
+	}
+	if loaded.Name != created.Name {
+		t.Errorf("loaded Name = %q, want %q", loaded.Name, created.Name)
+	}
+	if loaded.EffectiveRole != models.RoleArchitect {
+		t.Errorf("loaded EffectiveRole = %q, want %q", loaded.EffectiveRole, models.RoleArchitect)
+	}
+	if loaded.LastActive.IsZero() {
+		t.Error("LastActive is zero — expected it to be updated")
+	}
+}
+
+// TestLoadByIDOrName_ResolvesByName verifies LoadByIDOrName resolves the same session
+// by its name, with an identical result shape to resolving by ID.
+func TestLoadByIDOrName_ResolvesByName(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	created, err := Create(models.RoleImplementer, "", sqlDB, root)
+	if err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	loaded, err := LoadByIDOrName(created.Name, sqlDB)
+	if err != nil {
+		t.Fatalf("LoadByIDOrName: %v", err)
+	}
+	if loaded.ID != created.ID {
+		t.Errorf("loaded ID = %q, want %q", loaded.ID, created.ID)
+	}
+	if loaded.Name != created.Name {
+		t.Errorf("loaded Name = %q, want %q", loaded.Name, created.Name)
+	}
+	if loaded.EffectiveRole != models.RoleImplementer {
+		t.Errorf("loaded EffectiveRole = %q, want %q", loaded.EffectiveRole, models.RoleImplementer)
+	}
+}
+
+// TestLoadByIDOrName_NoMatch verifies LoadByIDOrName returns ErrSessionNotFound when
+// the value matches neither an id nor a name.
+func TestLoadByIDOrName_NoMatch(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	_, err = LoadByIDOrName("does-not-exist", sqlDB)
+	if !errors.Is(err, ErrSessionNotFound) {
+		t.Errorf("expected ErrSessionNotFound, got %v", err)
+	}
+}
+
+// TestLoadByIDOrName_ExpiredSession verifies LoadByIDOrName returns ErrExpiredSession
+// with ExpiredAt populated, whether resolved by id or by name.
+func TestLoadByIDOrName_ExpiredSession(t *testing.T) {
+	root := setupDB(t)
+	sqlDB, err := db.Open(root)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer sqlDB.Close()
+
+	expiredID := "expired-by-id-or-name"
+	expiredName := "expired-name-test"
+	if _, err := sqlDB.Exec(
+		`INSERT INTO sessions (id, role, name, created_at, last_active, expired_at)
+		 VALUES (?, 'architect', ?, datetime('now'), datetime('now'), datetime('2000-01-01'))`,
+		expiredID, expiredName,
+	); err != nil {
+		t.Fatalf("insert expired session: %v", err)
+	}
+
+	// Resolve by id.
+	s, err := LoadByIDOrName(expiredID, sqlDB)
+	if !errors.Is(err, ErrExpiredSession) {
+		t.Errorf("by id: expected ErrExpiredSession, got %v", err)
+	}
+	if s == nil || s.ExpiredAt == nil {
+		t.Fatal("by id: expected ExpiredAt to be populated")
+	}
+
+	// Resolve by name.
+	s, err = LoadByIDOrName(expiredName, sqlDB)
+	if !errors.Is(err, ErrExpiredSession) {
+		t.Errorf("by name: expected ErrExpiredSession, got %v", err)
+	}
+	if s == nil || s.ExpiredAt == nil {
+		t.Fatal("by name: expected ExpiredAt to be populated")
+	}
+}
+
 // TestCreate_UnregisteredRole_Error verifies that Create fails when the requested role
 // is not present in the roles table.
 func TestCreate_UnregisteredRole_Error(t *testing.T) {

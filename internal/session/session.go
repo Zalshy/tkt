@@ -24,6 +24,12 @@ var ErrNoSession = errors.New("no active session")
 // distinguishable by humans and by errors.Is callers.
 var ErrExpiredSession = errors.New("session has expired")
 
+// ErrSessionNotFound is returned by LoadByIDOrName when the given value matches no
+// session row by id or name. Distinct from ErrNoSession: ErrNoSession means "no file
+// pointer / no flag was given," while ErrSessionNotFound means "an explicit value was
+// given but matched nothing" — conflating the two would mislead callers using --session.
+var ErrSessionNotFound = errors.New("session not found")
+
 // LoadActive reads the active session from the .tkt/session file, looks it up in the
 // DB, updates last_active, and returns the Session.
 //
@@ -77,6 +83,54 @@ func LoadActive(root string, db *sql.DB) (*models.Session, error) {
 	base, err := rolepkg.ResolveBase(string(s.Role), db)
 	if err != nil {
 		return nil, fmt.Errorf("LoadActive: resolve base role: %w", err)
+	}
+	s.EffectiveRole = base
+
+	return &s, nil
+}
+
+// LoadByIDOrName looks up a session directly by its ULID or its name, bypassing the
+// .tkt/session file pointer entirely. Behavior mirrors LoadActive's DB-touching half:
+//
+//   - Returns ErrSessionNotFound when value matches no session's id or name.
+//   - Returns ErrExpiredSession when expired_at is set on the matched session row.
+//   - On success, updates last_active and resolves EffectiveRole, identical to LoadActive.
+func LoadByIDOrName(value string, db *sql.DB) (*models.Session, error) {
+	var s models.Session
+	var expiredAt sql.NullTime
+
+	// id is the PRIMARY KEY and name is UNIQUE NOT NULL (V16 migration), so this OR
+	// can never multi-match: at most one row matches id, at most one matches name, and
+	// a single value cannot equal two different rows' id/name simultaneously. If a future
+	// schema change relaxes either constraint, this invariant breaks — revisit then.
+	err := db.QueryRow(
+		`SELECT id, role, name, created_at, last_active, expired_at
+		 FROM sessions WHERE id = ? OR name = ?`,
+		value, value,
+	).Scan(&s.ID, &s.Role, &s.Name, &s.CreatedAt, &s.LastActive, &expiredAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return nil, ErrSessionNotFound
+		}
+		return nil, fmt.Errorf("LoadByIDOrName: query session: %w", err)
+	}
+
+	if expiredAt.Valid {
+		t := expiredAt.Time
+		s.ExpiredAt = &t
+		return &s, ErrExpiredSession
+	}
+
+	if err := updateLastActive(db, s.ID); err != nil {
+		return nil, fmt.Errorf("LoadByIDOrName: %w", err)
+	}
+
+	// Refresh LastActive to reflect the update we just performed.
+	s.LastActive = time.Now().UTC()
+
+	base, err := rolepkg.ResolveBase(string(s.Role), db)
+	if err != nil {
+		return nil, fmt.Errorf("LoadByIDOrName: resolve base role: %w", err)
 	}
 	s.EffectiveRole = base
 

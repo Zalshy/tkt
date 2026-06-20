@@ -48,7 +48,7 @@ func runPlan(cmd *cobra.Command, args []string) error {
 	}
 	defer database.Close()
 
-	sess, err := session.LoadActive(root, database)
+	sess, err := resolveSession(root, database)
 	if err != nil {
 		if errors.Is(err, session.ErrNoSession) {
 			return errors.New(msgNoSession)
