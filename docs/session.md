@@ -24,8 +24,9 @@ tkt session [flags]
 - `--name` is optional advanced usage for deterministic automation, debugging, or rare cases that need a specific session name.
 - `--name` requires `--role`; it cannot be used with `--end`.
 - Explicit session names must be lowercase alphanumeric with hyphens, max 32 characters.
-- Built-in roles are `architect` and `implementer`; custom roles can be created with `tkt role create`.
-- Only one session is active at a time per project directory.
+- Built-in roles are `architect`, `implementer`, `orchestrator`, and `monitor`; custom roles can be created with `tkt role create` (based on `architect` or `implementer`).
+- An `orchestrator` session cannot advance tickets directly — `tkt advance` requires `--as <session-name>` to delegate the transition to a named architect or implementer session.
+- Only one session is active at a time per project directory — `tkt session --role X` overwrites the `.tkt/session` file pointer. Concurrent agents in the same directory should use the global `--session <id-or-name>` flag (see [global-flags.md](global-flags.md)) to act as a specific session without racing the file pointer.
 
 ## Examples
 

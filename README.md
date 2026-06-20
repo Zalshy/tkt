@@ -51,7 +51,33 @@ tkt show 1                        # inspect a ticket
 | `architect` | Create tickets, write and approve plans, verify completed work |
 | `implementer` | Pick up planned tickets, implement, submit for review |
 
-Custom roles can be mapped to either built-in: `tkt role create security-expert --like architect`
+Custom roles can be mapped to either built-in: `tkt role create security_expert --like architect` (names must match `[a-z][a-z0-9_]*` — no hyphens)
+
+### Orchestrator
+
+`orchestrator` is a built-in role — no `tkt role create` needed.
+
+```bash
+tkt session --role orchestrator
+```
+
+Orchestrator cannot act in its own name. Every write operation must be delegated to an existing active architect or implementer session using `--as`:
+
+```bash
+tkt advance <id> --as <session-name> --note "<note>"
+```
+
+`--as` must name an active session with role `architect` or `implementer`. The ticket log records the delegated session — the orchestrator is invisible in the audit trail. Omitting `--as` when running as orchestrator is a hard error.
+
+### Concurrent agents in the same project
+
+`.tkt/session` is a single file pointer per project directory. If an orchestrator and the subagents it spawns all run `tkt` in the same directory, concurrent `tkt session --role X` calls race and silently overwrite each other's effective identity. Use the global `--session <id-or-name>` flag to resolve a specific session directly from the database for one invocation, bypassing the file pointer entirely:
+
+```bash
+tkt --session <id-or-name> advance <id> --note "<note>"
+```
+
+`--session` accepts either a session's ULID or its generated name, and is additive — omit it and behavior is unchanged. It's orthogonal to `--as`: `--session` controls which session resolves *you*; `--as` lets an orchestrator session act *as* another role. See [docs/global-flags.md](docs/global-flags.md).
 
 ### Orchestrator
 

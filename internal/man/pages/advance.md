@@ -19,6 +19,7 @@ tkt advance <id> --note "<note>" [flags]
 | `--force` | bool | `false` | Override role/isolation checks (violation will be recorded in the log for real transitions) |
 | `--dry-run` | bool | `false` | Check transition without changing state or writing a log row; note is optional |
 | `--explain` | bool | `false` | Explain why transition is allowed or blocked without changing state or writing a log row; note is optional |
+| `--as` | string | `""` | Act as this session (orchestrator sessions only) |
 
 ## Notes / Behaviour
 
@@ -35,6 +36,7 @@ tkt advance <id> --note "<note>" [flags]
 - `--force` bypasses role and isolation checks but permanently records a violation in the audit log for real transitions. In dry-run/explain mode, it shows force effect without writing.
 - `--to` can target any valid state; use with care since skipping states may violate workflow rules.
 - Tickets can be moved to `CANCELED` from any state; `CANCELED → TODO` is the only reverse path without `--force`.
+- Orchestrator sessions cannot advance tickets directly: `--as <session-name>` is required and delegates the transition to a named architect or implementer session. `--as` is rejected for non-orchestrator sessions.
 
 ## Examples
 
@@ -47,4 +49,5 @@ tkt advance 5 --to CANCELED --note "out of scope"
 tkt advance 5 --dry-run
 tkt advance 5 --explain --to IN_PROGRESS
 tkt advance 5 --to IN_PROGRESS --note "plan approved" --force
+tkt advance 5 --as architect-01 --note "plan approved"
 ```

@@ -26,6 +26,7 @@ func addAdminTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithDescription("Add a new project context entry."),
 			mcplib.WithString("title", mcplib.Required(), mcplib.Description("Context entry title")),
 			mcplib.WithString("body", mcplib.Required(), mcplib.Description("Context entry body")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			title := req.GetString("title", "")
@@ -37,7 +38,12 @@ func addAdminTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError("body is required"), nil
 			}
 
-			entry, err := ctxpkg.Add(title, body, sess, db)
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
+			entry, err := ctxpkg.Add(title, body, actingSess, db)
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
@@ -53,6 +59,7 @@ func addAdminTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithString("id", mcplib.Required(), mcplib.Description("Context entry ID")),
 			mcplib.WithString("title", mcplib.Required(), mcplib.Description("New title")),
 			mcplib.WithString("body", mcplib.Required(), mcplib.Description("New body")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			idStr := req.GetString("id", "")
@@ -68,12 +75,17 @@ func addAdminTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError("body is required"), nil
 			}
 
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
 			n, err := strconv.Atoi(strings.TrimSpace(idStr))
 			if err != nil {
 				return mcplib.NewToolResultError(fmt.Sprintf("invalid context id %q", idStr)), nil
 			}
 
-			if err := ctxpkg.Update(n, title, body, sess, db); err != nil {
+			if err := ctxpkg.Update(n, title, body, actingSess, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 

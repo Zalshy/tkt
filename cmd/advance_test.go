@@ -644,3 +644,50 @@ func TestAdvanceAs_MonitorSession(t *testing.T) {
 		t.Fatalf("expected 'cannot delegate' error, got: %v", err)
 	}
 }
+
+// TestAdvance_SessionFlagOverridesFilePointer verifies that --session <name-of-session-B>
+// resolves session B as the acting session even though the .tkt/session file points at
+// session A, and that the resulting transition log row records session B's name, not
+// session A's — proving the bypass actually happens (not just that it doesn't error).
+func TestAdvance_SessionFlagOverridesFilePointer(t *testing.T) {
+	dir := t.TempDir()
+	if err := runInitInDir(t, dir); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+
+	// Session A: file pointer points here.
+	seedSessionWithRole(t, dir, "session-a-id", "implementer")
+	// Session B: only resolvable via --session, file pointer does NOT point here.
+	seedNamedSession(t, dir, "session-b-id", "session-b-name", "implementer")
+
+	id := seedTicketWithStatus(t, dir, "Override test", "TODO")
+
+	savedOverride := sessionOverride
+	defer func() { sessionOverride = savedOverride }()
+
+	_, err := runAdvanceInDir(t, dir, []string{id}, func() {
+		advanceNote = "advanced via --session override"
+		sessionOverride = "session-b-name"
+	})
+	if err != nil {
+		t.Fatalf("runAdvance: %v", err)
+	}
+
+	database, err := db.Open(dir)
+	if err != nil {
+		t.Fatalf("db.Open: %v", err)
+	}
+	defer database.Close()
+
+	var sessionName string
+	if err := database.QueryRow(
+		`SELECT session_name FROM ticket_log WHERE ticket_id = ? AND kind = 'transition' ORDER BY id DESC LIMIT 1`,
+		id,
+	).Scan(&sessionName); err != nil {
+		t.Fatalf("query ticket_log: %v", err)
+	}
+
+	if sessionName != "session-b-name" {
+		t.Errorf("ticket_log session_name = %q, want %q (session B, not file-pointer session A)", sessionName, "session-b-name")
+	}
+}

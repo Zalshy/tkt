@@ -9,8 +9,8 @@ Manage long-form project documents (design notes, ADRs, post-mortems, etc.).
 ```
 tkt doc add <slug> [flags]
 tkt doc list [flags]
-tkt doc read <slug>
-tkt doc archive <slug>
+tkt doc read <id|slug>
+tkt doc archive <id|slug>
 ```
 
 ## Flags
@@ -40,6 +40,8 @@ No flags beyond the global `--dir`.
 ## Notes / Behaviour
 
 - `doc add` requires a positional `<slug>` argument (e.g. `tkt doc add adr-001`). The slug is the document identifier.
+- `doc read` and `doc archive` accept either the numeric document ID or a slug substring.
+- Documents are stored under `.tkt/docs/` (project-local store), not a top-level `docs/` directory.
 - For `doc add`: `--body`, `--stdin`, and `--file` are mutually exclusive; providing more than one is an error.
 - When none of `--body`, `--stdin`, or `--file` is set, `doc add` opens `$EDITOR` — this hangs in non-interactive contexts.
 - `--archived` belongs only to `doc list`; it is not a flag on other subcommands.
