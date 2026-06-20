@@ -27,6 +27,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithString("after", mcplib.Description("Comma-separated dependency ticket IDs (e.g. 5,7)")),
 			mcplib.WithString("main_type", mcplib.Description("Ticket type label (optional, max 30 chars, e.g. feature, bugfix, refactor)")),
 			mcplib.WithNumber("attention_level", mcplib.Description("Attention level 0–99 (optional; 0 = unset)")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			title := req.GetString("title", "")
@@ -38,9 +39,14 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				tier = "standard"
 			}
 
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
 			mainType := req.GetString("main_type", "")
 			attentionLevel := req.GetInt("attention_level", 0)
-			t, err := ticket.Create(title, "", tier, sess, db, mainType, attentionLevel)
+			t, err := ticket.Create(title, "", tier, actingSess, db, mainType, attentionLevel)
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
@@ -87,6 +93,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithString("to", mcplib.Description("Target status (optional, defaults to natural next state)")),
 			mcplib.WithBoolean("force", mcplib.Description("Bypass soft validation rules")),
 			mcplib.WithString("as", mcplib.Description("Act as this session name (orchestrator only)")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			idStr := req.GetString("id", "")
@@ -102,7 +109,12 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			asName := req.GetString("as", "")
 
 			// Shadow-replace local actingSess — never mutate the closed-over sess pointer.
-			actingSess := sess
+			// session resolves first (who is calling), then as delegates further (who they
+			// act as) — checked against whichever session "session" resolved to.
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
 			if actingSess != nil && actingSess.EffectiveRole == models.RoleOrchestrator {
 				if asName == "" {
 					return mcplib.NewToolResultError("advance: orchestrator session must use --as <session-name>"), nil
@@ -176,6 +188,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithDescription("Add a comment/message to a ticket's log."),
 			mcplib.WithString("id", mcplib.Required(), mcplib.Description("Ticket ID or comma-separated IDs")),
 			mcplib.WithString("body", mcplib.Required(), mcplib.Description("Comment text")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			idStr := req.GetString("id", "")
@@ -185,6 +198,11 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			body := req.GetString("body", "")
 			if body == "" {
 				return mcplib.NewToolResultError("body is required"), nil
+			}
+
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
 			parts := strings.Split(idStr, ",")
@@ -201,7 +219,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 					errs = append(errs, fmt.Sprintf("#%s: %v", p, err))
 					continue
 				}
-				if err := ilog.Append(ctx, t.ID, "message", body, nil, nil, sess, false, db); err != nil {
+				if err := ilog.Append(ctx, t.ID, "message", body, nil, nil, actingSess, false, db); err != nil {
 					errs = append(errs, fmt.Sprintf("#%d: %v", t.ID, err))
 					continue
 				}
@@ -228,6 +246,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithDescription("Submit a plan for a ticket (required before PLANNING→IN_PROGRESS)."),
 			mcplib.WithString("id", mcplib.Required(), mcplib.Description("Ticket ID")),
 			mcplib.WithString("body", mcplib.Required(), mcplib.Description("Plan content")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			id := req.GetString("id", "")
@@ -239,6 +258,11 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError("body is required"), nil
 			}
 
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
 			t, err := ticket.GetByID(id, db)
 			if err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
@@ -247,7 +271,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError(fmt.Sprintf("cannot edit plan — ticket #%d is in %s state (plan is frozen once approved)", t.ID, t.Status)), nil
 			}
 
-			if err := ilog.Append(ctx, t.ID, "plan", body, nil, nil, sess, false, db); err != nil {
+			if err := ilog.Append(ctx, t.ID, "plan", body, nil, nil, actingSess, false, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
@@ -334,11 +358,17 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 		mcplib.NewTool("tkt_archive_ticket",
 			mcplib.WithDescription("Archive one or more VERIFIED tickets."),
 			mcplib.WithString("id", mcplib.Required(), mcplib.Description("Ticket ID or comma-separated IDs")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			idStr := req.GetString("id", "")
 			if idStr == "" {
 				return mcplib.NewToolResultError("id is required"), nil
+			}
+
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
 			parts := strings.Split(idStr, ",")
@@ -356,7 +386,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 					continue
 				}
 				fromStatus := t.Status
-				if err := state.Execute(p, models.StatusArchived, "archived via mcp", sess, db, false); err != nil {
+				if err := state.Execute(p, models.StatusArchived, "archived via mcp", actingSess, db, false); err != nil {
 					errs = append(errs, fmt.Sprintf("#%d: %v", t.ID, err))
 					continue
 				}
@@ -387,6 +417,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			mcplib.WithNumber("duration", mcplib.Description("Duration in seconds (optional)")),
 			mcplib.WithString("agent", mcplib.Description("Agent role (optional, defaults to session role)")),
 			mcplib.WithString("label", mcplib.Description("Free annotation (optional)")),
+			mcplib.WithString("session", mcplib.Description("Resolve actor by session id or name for this call only, bypassing the server's startup session")),
 		),
 		func(ctx context.Context, req mcplib.CallToolRequest) (*mcplib.CallToolResult, error) {
 			id := req.GetString("id", "")
@@ -397,11 +428,17 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 			if tokens <= 0 {
 				return mcplib.NewToolResultError("tokens must be > 0"), nil
 			}
+
+			actingSess, err := resolveActingSession(req.GetString("session", ""), sess, db)
+			if err != nil {
+				return mcplib.NewToolResultError(err.Error()), nil
+			}
+
 			tools := req.GetInt("tools", 0)
 			durationSecs := req.GetInt("duration", 0)
 			agent := req.GetString("agent", "")
 			if agent == "" {
-				agent = string(sess.Role)
+				agent = string(actingSess.Role)
 			}
 			label := req.GetString("label", "")
 
@@ -410,7 +447,7 @@ func addWriteTools(s *server.MCPServer, root string, db *sql.DB, sess *models.Se
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 
-			if err := usage.Append(ctx, t.ID, sess.Name, tokens, tools, durationSecs*1000, agent, label, db); err != nil {
+			if err := usage.Append(ctx, t.ID, actingSess.Name, tokens, tools, durationSecs*1000, agent, label, db); err != nil {
 				return mcplib.NewToolResultError(err.Error()), nil
 			}
 

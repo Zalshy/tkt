@@ -6,6 +6,7 @@ Read this first, then read specific pages with `tkt man <page>`.
 
 Critical rules:
 - Start a session before writes: `tkt session --role architect` or `tkt session --role implementer`.
+- Multiple agents in the same project dir share one `.tkt/session` file pointer and can race. Use `--session <id-or-name>` on any command to resolve your identity explicitly instead of relying on the file pointer.
 - Statuses are `TODO`, `PLANNING`, `IN_PROGRESS`, `DONE`, `VERIFIED`, `CANCELED`, `ARCHIVED`.
 - No status named `PLANNED`.
 - `tkt list` shows only 10 active non-verified tickets by default; use `tkt list --all` when auditing.

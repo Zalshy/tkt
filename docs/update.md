@@ -17,7 +17,7 @@ tkt update <id> [flags]
 
 ## Notes / Behaviour
 
-- At least one of `--type` or `--attention` should be provided; calling with neither has no effect.
+- At least one of `--type` or `--attention` is required; calling with neither is an error.
 - `--attention` of `0` clears the attention level (unset).
 - Type labels are free-form strings; no validation is performed.
 - To update tier, use `tkt tier <id> <tier>` instead.

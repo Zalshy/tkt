@@ -29,7 +29,7 @@ No flags beyond the global `--dir`.
 ## Notes / Behaviour
 
 - `--like` is required for `role create`; omitting it is an error.
-- Custom role names must be lowercase alphanumeric with hyphens, max 32 characters.
+- Custom role names must match `[a-z][a-z0-9_]*` (lowercase letter, then lowercase letters/digits/underscores — no hyphens), 2–64 characters.
 - Custom roles inherit all permissions of their base role.
 - Built-in roles `architect` and `implementer` cannot be deleted.
 - A session started with a custom role is treated identically to a session with the base role for all isolation and permission checks.
@@ -37,8 +37,8 @@ No flags beyond the global `--dir`.
 ## Examples
 
 ```bash
-tkt role create security-expert --like architect
-tkt role create ci-bot --like implementer
+tkt role create security_expert --like architect
+tkt role create ci_bot --like implementer
 tkt role list
-tkt role delete security-expert
+tkt role delete security_expert
 ```
