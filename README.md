@@ -79,6 +79,22 @@ tkt --session <id-or-name> advance <id> --note "<note>"
 
 `--session` accepts either a session's ULID or its generated name, and is additive — omit it and behavior is unchanged. It's orthogonal to `--as`: `--session` controls which session resolves *you*; `--as` lets an orchestrator session act *as* another role. See [docs/global-flags.md](docs/global-flags.md).
 
+### Orchestrator
+
+`orchestrator` is a built-in role — no `tkt role create` needed.
+
+```bash
+tkt session --role orchestrator
+```
+
+Orchestrator cannot act in its own name. Every write operation must be delegated to an existing active architect or implementer session using `--as`:
+
+```bash
+tkt advance <id> --as <session-name> --note "<note>"
+```
+
+`--as` must name an active session with role `architect` or `implementer`. The ticket log records the delegated session — the orchestrator is invisible in the audit trail. Omitting `--as` when running as orchestrator is a hard error.
+
 ## Commands
 
 > Full command reference with all flags: [docs/](docs/)
